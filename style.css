@@ -380,6 +380,105 @@ textarea.input { height: auto; min-height: 170px; padding: 12px 14px; line-heigh
 }
 .actions-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 
+/* ---------- plan: tydzień */
+.icon-btn.surface { background: var(--surface); }
+.day-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.day-chip {
+  height: 66px; padding: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+}
+.day-chip.has { background: var(--surface); border-color: var(--line); color: var(--ink); }
+.day-chip.today { border-color: var(--accent); border-width: 1.5px; }
+.dc-short { font-size: 12px; font-weight: 600; }
+.dc-num { font-family: var(--mono); font-size: 17px; font-weight: 500; }
+.dc-dots { display: flex; gap: 3px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--check-border); box-sizing: border-box; }
+.dot.on { background: var(--accent); border-color: var(--accent); }
+.day { display: flex; flex-direction: column; gap: 8px; scroll-margin-top: calc(env(safe-area-inset-top) + 12px); }
+.day-title {
+  margin: 0;
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.day-date { font-family: var(--mono); font-weight: 500; letter-spacing: 0; }
+.today-tag {
+  font-size: 11px; letter-spacing: 0.04em;
+  padding: 1px 7px; border-radius: 8px;
+  background: var(--accent); color: var(--accent-ink);
+}
+.slots {
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.slot {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 66px; padding: 6px 10px 6px 16px;
+  background: var(--surface);
+}
+.slot.active { background: var(--accent-soft); }
+.slot-main {
+  flex: 1; min-width: 0; min-height: 44px; padding: 0;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
+  border: 0; background: transparent; text-align: left;
+}
+.slot-label {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.slot-name { font-size: 16px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.slot-empty {
+  width: 100%;
+  min-height: 52px; padding: 6px 16px;
+  gap: 12px;
+  border: 0; text-align: left;
+}
+.slot-empty .slot-label { width: 92px; flex: none; }
+.slot-add { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; color: var(--accent); }
+.picker {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+  border-radius: 16px;
+}
+.picker-title { margin: 0; font-size: 15px; font-weight: 600; }
+.picker .field { background: var(--bg); }
+.seg {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
+  padding: 4px;
+  background: var(--bg);
+  border-radius: 12px;
+}
+.seg button {
+  min-height: 40px;
+  border: 0; border-radius: 9px;
+  background: transparent;
+  font-size: 15px; font-weight: 600;
+  color: var(--muted);
+}
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.opt-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.opt {
+  min-height: 52px; padding: 8px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  font-size: 14px; font-weight: 600; line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.opt.on { border-color: var(--accent); background: var(--accent-soft); }
+.in-plan { color: var(--accent); font-weight: 600; }
+.chev-muted { flex: none; color: var(--muted); display: inline-flex; padding-right: 6px; }
+
 /* ---------- sheet */
 .sheet-backdrop {
   position: fixed; inset: 0;

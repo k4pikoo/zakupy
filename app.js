@@ -1,6 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
+const APP_VERSION = '1.1';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -58,6 +59,38 @@ const hash = (s) => {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return String(h);
 };
+
+/* ------------------------------------------------------------------ dates */
+
+const MONTHS = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'];
+const DAY_NAMES = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela'];
+const DAY_ACC = ['poniedziałek', 'wtorek', 'środę', 'czwartek', 'piątek', 'sobotę', 'niedzielę'];
+const DAY_SHORT = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
+const SLOTS = [
+  { key: 's', label: 'Śniadanie', acc: 'śniadanie' },
+  { key: 'o', label: 'Obiad', acc: 'obiad' },
+];
+const pad2 = (n) => String(n).padStart(2, '0');
+const iso = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const fromIso = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const mondayOf = (d) => addDays(new Date(d.getFullYear(), d.getMonth(), d.getDate()), -((d.getDay() + 6) % 7));
+const weekDates = (monday) => Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+// W sobotę i niedzielę planujesz zwykle kolejny tydzień.
+function defaultMonday() {
+  const t = new Date();
+  const m = mondayOf(t);
+  return (t.getDay() === 6 || t.getDay() === 0) ? addDays(m, 7) : m;
+}
+let weekOffset = 0;
+const viewMonday = () => addDays(defaultMonday(), weekOffset * 7);
+function weekRange(monday) {
+  const sun = addDays(monday, 6);
+  return monday.getMonth() === sun.getMonth()
+    ? `${monday.getDate()}–${sun.getDate()} ${MONTHS[sun.getMonth()]}`
+    : `${monday.getDate()} ${MONTHS[monday.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]}`;
+}
+const dateShort = (d) => `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`;
 
 const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -232,10 +265,14 @@ function seed() {
     'mąka pszenna', 'skrobia ziemniaczana', 'bulion wołowy', 'bułka tarta']) {
     catalog[n] = { ...(catalog[n] || {}), staple: true };
   }
+  const m = defaultMonday();
   return {
     v: 1,
     recipes: [klopsiki, tortilla],
-    plan: [{ recipeId: 'klopsiki', servings: 1 }, { recipeId: 'tortilla', servings: 1 }],
+    meals: {
+      [iso(m)]: { o: { recipeId: 'klopsiki', servings: 1 } },
+      [iso(addDays(m, 1))]: { o: { recipeId: 'tortilla', servings: 1 } },
+    },
     list: { items: [], sig: '' },
     catalog,
     barcodes: {},
@@ -244,21 +281,31 @@ function seed() {
 
 /* ------------------------------------------------------------------ state */
 
+function normalizeState(s) {
+  let meals = s.meals && typeof s.meals === 'object' ? s.meals : null;
+  if (!meals) {
+    // Wersja 1.0 miała plan bez dni: rozkładam dania na obiady od poniedziałku.
+    meals = {};
+    const m = defaultMonday();
+    (Array.isArray(s.plan) ? s.plan : []).slice(0, 7).forEach((p, i) => {
+      meals[iso(addDays(m, i))] = { o: { recipeId: p.recipeId, servings: p.servings || 1 } };
+    });
+  }
+  return {
+    v: 1,
+    recipes: s.recipes,
+    meals,
+    list: s.list && Array.isArray(s.list.items) ? s.list : { items: [], sig: '' },
+    catalog: s.catalog || {},
+    barcodes: s.barcodes || {},
+  };
+}
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      if (s && Array.isArray(s.recipes)) {
-        return {
-          v: 1,
-          recipes: s.recipes,
-          plan: Array.isArray(s.plan) ? s.plan : [],
-          list: s.list && Array.isArray(s.list.items) ? s.list : { items: [], sig: '' },
-          catalog: s.catalog || {},
-          barcodes: s.barcodes || {},
-        };
-      }
+      if (s && Array.isArray(s.recipes)) return normalizeState(s);
     }
   } catch (e) { /* uszkodzone dane — start od zera */ }
   return seed();
@@ -273,7 +320,19 @@ function save() {
 }
 
 const getRecipe = (id) => state.recipes.find((r) => r.id === id);
-const inPlan = (id) => state.plan.some((p) => p.recipeId === id);
+// Posiłki z danego tygodnia: [{ date, slot, recipe, servings }]
+function weekMeals(monday) {
+  const out = [];
+  for (const d of weekDates(monday)) {
+    const entry = state.meals[iso(d)] || {};
+    for (const slot of SLOTS) {
+      const m = entry[slot.key];
+      const r = m && getRecipe(m.recipeId);
+      if (r) out.push({ date: d, slot: slot.key, recipe: r, servings: m.servings || 1 });
+    }
+  }
+  return out;
+}
 const cat = (k) => state.catalog[k] || {};
 const catFor = (name) => cat(key(name));
 const deptOf = (name) => catFor(name).dept || guessDept(name);
@@ -284,21 +343,18 @@ function setCat(k, patch) {
   else delete state.catalog[k];
 }
 
-function planSig() {
-  return hash(JSON.stringify(state.plan.map((p) => {
-    const r = getRecipe(p.recipeId);
-    return [p.recipeId, p.servings, r ? r.servings : 0, r ? r.items.map((i) => [i.name, i.qty, i.unit, i.g]) : []];
-  })));
+function weekSig(monday) {
+  return hash(JSON.stringify(weekMeals(monday).map((m) =>
+    [iso(m.date), m.slot, m.recipe.id, m.servings, m.recipe.servings, m.recipe.items.map((i) => [i.name, i.qty, i.unit, i.g])])));
 }
 
 /* -------------------------------------------------------- list generation */
 
-function generateList() {
+function generateList(monday) {
   const agg = new Map();
-  for (const p of state.plan) {
-    const r = getRecipe(p.recipeId);
-    if (!r) continue;
-    const f = p.servings / (r.servings || 1);
+  for (const meal of weekMeals(monday)) {
+    const r = meal.recipe;
+    const f = meal.servings / (r.servings || 1);
     for (const ing of r.items) {
       const k = key(ing.name);
       if (!k) continue;
@@ -329,7 +385,7 @@ function generateList() {
     checked: prevChecked.get(e.key) || false,
   }));
   const manual = state.list.items.filter((i) => i.manual);
-  state.list = { items: [...fromRecipes, ...manual], sig: planSig(), at: Date.now() };
+  state.list = { items: [...fromRecipes, ...manual], sig: weekSig(monday), week: iso(monday), at: Date.now() };
   save();
 }
 
@@ -360,35 +416,106 @@ function tabbar(active) {
   return `<nav class="tabbar" aria-label="Nawigacja">${tab('plan', 'Plan', 'plan')}${tab('przepisy', 'Przepisy', 'book')}${tab('lista', 'Lista', 'basket')}</nav>`;
 }
 
+let picker = null; // { date: 'YYYY-MM-DD', slot: 's' | 'o' }
+let pickerQuery = '';
+
+function pickerOptions() {
+  if (!picker) return '';
+  const cur = (state.meals[picker.date] || {})[picker.slot];
+  const q = key(pickerQuery);
+  const rs = state.recipes
+    .filter((r) => !q || key(r.name).includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+  if (!state.recipes.length) return '<p class="hint">Nie masz jeszcze przepisów. <a href="#/przepisy">Dodaj pierwszy</a>.</p>';
+  if (!rs.length) return '<p class="hint">Nic nie pasuje do wyszukiwania.</p>';
+  return rs.map((r) => {
+    const sel = !!cur && cur.recipeId === r.id;
+    return `<button type="button" class="opt${sel ? ' on' : ''}" data-act="picker-choose" data-rid="${esc(r.id)}" aria-pressed="${sel}">${esc(r.name)}</button>`;
+  }).join('');
+}
+function renderPicker(dateKey, dayIdx) {
+  const slot = SLOTS.find((s) => s.key === picker.slot);
+  const cur = (state.meals[dateKey] || {})[picker.slot];
+  const title = `Co na ${slot.acc} ${dayIdx === 1 ? 'we' : 'w'} ${DAY_ACC[dayIdx]}?`;
+  return `<div class="picker" id="picker" role="group" aria-label="${esc(title)}">
+    <p class="picker-title">${esc(title)}</p>
+    <div class="seg">${SLOTS.map((s) => `<button type="button" data-act="picker-slot" data-slot="${s.key}" aria-pressed="${s.key === picker.slot}">${s.label}</button>`).join('')}</div>
+    ${state.recipes.length > 6 ? `<label class="field"><span class="sr-only">Szukaj przepisu</span>${icon('search')}<input id="picker-search" type="search" placeholder="Szukaj przepisu" value="${esc(pickerQuery)}" autocomplete="off"></label>` : ''}
+    <div class="opt-grid" id="picker-options">${pickerOptions()}</div>
+    <div class="btn-row">
+      ${cur ? '<button type="button" class="btn sm danger" data-act="picker-clear">Usuń z planu</button>' : ''}
+      <button type="button" class="btn sm" data-act="picker-close">Zamknij</button>
+    </div>
+  </div>`;
+}
 function renderPlan() {
-  const entries = state.plan.map((p) => ({ p, r: getRecipe(p.recipeId) })).filter((x) => x.r);
-  const total = entries.reduce((s, x) => s + x.p.servings, 0);
-  const cards = entries.length
-    ? `<ul class="card-list">${entries.map(({ p, r }) => `
-      <li class="card">
-        <a class="card-main" href="#/przepis/${encodeURIComponent(r.id)}">
-          <span class="card-title">${esc(r.name)}</span>
-          <span class="card-meta">${esc(porcje(p.servings))}${r.kcal ? ` · ${esc(r.kcal)} kcal/porcja` : ''}</span>
-        </a>
-        <div class="stepper">
-          <button type="button" class="icon-btn" data-act="plan-dec" data-rid="${esc(r.id)}" aria-label="${p.servings <= 1 ? 'Usuń z planu' : 'Mniej porcji'}: ${esc(r.name)}">${icon(p.servings <= 1 ? 'x' : 'minus')}</button>
-          <span class="count">${p.servings}</span>
-          <button type="button" class="icon-btn" data-act="plan-inc" data-rid="${esc(r.id)}" aria-label="Więcej porcji: ${esc(r.name)}">${icon('plus')}</button>
-        </div>
-      </li>`).join('')}</ul>`
-    : '<div class="empty">Plan jest pusty. Dodaj dania z przepisów.</div>';
+  const monday = viewMonday();
+  const dates = weekDates(monday);
+  const todayKey = iso(new Date());
+  let meals = 0;
+  let total = 0;
+  const chips = [];
+  const days = dates.map((d, i) => {
+    const dk = iso(d);
+    const entry = state.meals[dk] || {};
+    const has = {};
+    const rows = SLOTS.map((slot) => {
+      const m = entry[slot.key];
+      const r = m && getRecipe(m.recipeId);
+      const active = picker && picker.date === dk && picker.slot === slot.key;
+      if (r) {
+        has[slot.key] = true;
+        meals += 1;
+        total += m.servings;
+        const last = m.servings <= 1;
+        return `<div class="slot${active ? ' active' : ''}">
+          <button type="button" class="slot-main" data-act="slot-open" data-date="${dk}" data-slot="${slot.key}" aria-label="Zmień ${slot.acc} na ${DAY_ACC[i]}: ${esc(r.name)}">
+            <span class="slot-label">${slot.label}</span>
+            <span class="slot-name">${esc(r.name)}</span>
+          </button>
+          <div class="stepper">
+            <button type="button" class="icon-btn" data-act="meal-dec" data-date="${dk}" data-slot="${slot.key}" aria-label="${last ? 'Usuń' : 'Mniej porcji'}: ${slot.acc}, ${DAY_ACC[i]}">${icon(last ? 'x' : 'minus')}</button>
+            <span class="count">${esc(fmtNum(m.servings))}</span>
+            <button type="button" class="icon-btn" data-act="meal-inc" data-date="${dk}" data-slot="${slot.key}" aria-label="Więcej porcji: ${slot.acc}, ${DAY_ACC[i]}">${icon('plus')}</button>
+          </div>
+        </div>`;
+      }
+      return `<button type="button" class="slot slot-empty${active ? ' active' : ''}" data-act="slot-open" data-date="${dk}" data-slot="${slot.key}" aria-label="Wybierz ${slot.acc} na ${DAY_ACC[i]} ${dateShort(d)}">
+        <span class="slot-label">${slot.label}</span>
+        <span class="slot-add">${icon('plus', 18, 2.2)}<span>Wybierz danie</span></span>
+      </button>`;
+    }).join('');
+    const isToday = dk === todayKey;
+    chips.push(`<button type="button" class="day-chip${has.s || has.o ? ' has' : ''}${isToday ? ' today' : ''}" data-act="scroll-day" data-i="${i}" aria-label="${DAY_NAMES[i]} ${dateShort(d)}: śniadanie ${has.s ? 'jest' : 'brak'}, obiad ${has.o ? 'jest' : 'brak'}">
+      <span class="dc-short">${DAY_SHORT[i]}</span>
+      <span class="dc-num">${d.getDate()}</span>
+      <span class="dc-dots"><span class="dot${has.s ? ' on' : ''}"></span><span class="dot${has.o ? ' on' : ''}"></span></span>
+    </button>`);
+    return `<section class="day" id="dzien-${i}">
+      <h2 class="day-title"><span>${DAY_NAMES[i]}</span><span class="day-date">${dateShort(d)}</span>${isToday ? '<span class="today-tag">dziś</span>' : ''}</h2>
+      <div class="slots">${rows}</div>
+      ${picker && picker.date === dk ? renderPicker(dk, i) : ''}
+    </section>`;
+  });
+  const free = 14 - meals;
   return `
-    <main class="screen${entries.length ? ' has-cta' : ''}">
+    <main class="screen${meals ? ' has-cta' : ''}">
       <header class="head">
-        <p class="eyebrow">Ten tydzień</p>
+        <div class="head-row">
+          <p class="eyebrow">Tydzień ${esc(weekRange(monday))}</p>
+          <div class="stepper">
+            <button type="button" class="icon-btn surface" data-act="week-prev" aria-label="Poprzedni tydzień">${icon('back')}</button>
+            <button type="button" class="icon-btn surface" data-act="week-next" aria-label="Następny tydzień">${icon('chev')}</button>
+          </div>
+        </div>
         <h1>Plan posiłków</h1>
-        <p class="sub">${entries.length} ${plural(entries.length, 'danie', 'dania', 'dań')} · ${esc(porcje(total))}</p>
+        <p class="sub">${meals} ${plural(meals, 'posiłek', 'posiłki', 'posiłków')} · ${esc(porcje(total))}${free ? ` · ${free} ${plural(free, 'wolne miejsce', 'wolne miejsca', 'wolnych miejsc')}` : ''}</p>
       </header>
-      ${cards}
-      <a class="dashed" href="#/przepisy">${icon('plus')}<span>Dodaj danie z przepisów</span></a>
-      ${entries.length ? '<button type="button" class="link-btn" data-act="clear-plan">Wyczyść plan</button>' : ''}
+      <nav class="day-strip" aria-label="Dni tygodnia">${chips.join('')}</nav>
+      ${days.join('')}
+      ${meals ? '<button type="button" class="link-btn" data-act="clear-week">Wyczyść ten tydzień</button>' : ''}
     </main>
-    ${entries.length ? `<div class="cta-bar"><button type="button" class="cta" data-act="generate"><span>Generuj listę zakupów</span>${icon('arrow', 22)}</button></div>` : ''}`;
+    ${meals ? `<div class="cta-bar"><button type="button" class="cta" data-act="generate"><span>Generuj listę zakupów</span>${icon('arrow', 22)}</button></div>` : ''}`;
 }
 
 const recipeMeta = (r) => `${porcje(r.servings || 1)} · ${skladniki(r.items.length)}${r.kcal ? ` · ${r.kcal} kcal` : ''}`;
@@ -399,19 +526,19 @@ function recipeCards() {
     .filter((r) => !q || key(r.name).includes(q))
     .sort((a, b) => a.name.localeCompare(b.name, 'pl'));
   if (!rs.length) return `<div class="empty">${q ? 'Nic nie pasuje do wyszukiwania.' : 'Nie masz jeszcze przepisów.'}</div>`;
-  return `<ul class="card-list">${rs.map((r) => {
-    const on = inPlan(r.id);
-    return `<li class="card card-tight">
+  const counts = {};
+  for (const m of weekMeals(viewMonday())) counts[m.recipe.id] = (counts[m.recipe.id] || 0) + 1;
+  return `<ul class="card-list">${rs.map((r) => `
+    <li class="card">
       <a class="card-main" href="#/przepis/${encodeURIComponent(r.id)}">
         <span class="card-title">${esc(r.name)}</span>
-        <span class="card-meta">${esc(recipeMeta(r))}</span>
+        <span class="card-meta">${esc(recipeMeta(r))}${counts[r.id] ? ` · <strong class="in-plan">${counts[r.id]}× w planie</strong>` : ''}</span>
       </a>
-      <button type="button" class="pill${on ? ' on' : ''}" data-act="plan-toggle" data-rid="${esc(r.id)}" aria-pressed="${on}">${icon(on ? 'check' : 'plus', 18, 2.2)}<span>${on ? 'W planie' : 'Do planu'}</span></button>
-    </li>`;
-  }).join('')}</ul>`;
+      <span class="chev-muted">${icon('chev', 20)}</span>
+    </li>`).join('')}</ul>`;
 }
 function renderRecipes() {
-  const count = state.recipes.filter((r) => inPlan(r.id)).length;
+  const count = state.recipes.length;
   return `
     <main class="screen">
       <header class="head-row">
@@ -423,7 +550,7 @@ function renderRecipes() {
         <span class="sr-only">Szukaj przepisu</span>
         <input id="recipe-search" type="search" placeholder="Szukaj przepisu" value="${esc(recipeQuery)}" autocomplete="off">
       </label>
-      <p class="sub">W planie na ten tydzień: ${count} z ${state.recipes.length}</p>
+      <p class="sub">${count} ${plural(count, 'przepis', 'przepisy', 'przepisów')} · do planu dodajesz je w zakładce Plan</p>
       <div id="recipe-list">${recipeCards()}</div>
       <button type="button" class="link-btn" data-act="backup-open">Kopia zapasowa i import przepisów</button>
     </main>`;
@@ -449,7 +576,6 @@ function renderRecipe(id) {
   if (!r) {
     return `<main class="screen"><a class="back" href="#/przepisy">${icon('back', 24)}<span>Przepisy</span></a><div class="empty">Nie ma takiego przepisu.</div></main>`;
   }
-  const on = inPlan(r.id);
   return `
     <main class="screen">
       <a class="back" href="#/przepisy">${icon('back', 24)}<span>Przepisy</span></a>
@@ -466,14 +592,9 @@ function renderRecipe(id) {
           <button type="button" class="icon-btn" data-act="serv-inc" data-rid="${esc(r.id)}" aria-label="Więcej porcji">${icon('plus')}</button>
         </div>
       </div>
-      <div class="grid2">
-        <label class="lbl">Kalorie na porcję
-          <input class="input" id="r-kcal" inputmode="numeric" placeholder="opcjonalnie" value="${r.kcal ?? ''}" data-change="recipe-kcal" data-rid="${esc(r.id)}">
-        </label>
-        <div class="lbl">Plan
-          <button type="button" class="pill${on ? ' on' : ''}" style="width:100%;height:48px;border-radius:12px" data-act="plan-toggle" data-rid="${esc(r.id)}" aria-pressed="${on}">${icon(on ? 'check' : 'plus', 18, 2.2)}<span>${on ? 'W planie' : 'Dodaj do planu'}</span></button>
-        </div>
-      </div>
+      <label class="lbl">Kalorie na porcję
+        <input class="input" id="r-kcal" inputmode="numeric" placeholder="opcjonalnie" value="${r.kcal ?? ''}" data-change="recipe-kcal" data-rid="${esc(r.id)}">
+      </label>
       <section class="group">
         <h2 class="section-title">Składniki · ${r.items.length}</h2>
         ${r.items.length ? `<ul class="group-list">${r.items.map((ing) => ingRow(r, ing)).join('')}</ul>` : '<div class="empty">Brak składników. Dodaj pierwszy poniżej albo wklej całą listę.</div>'}
@@ -508,13 +629,15 @@ const sortItems = (a, b) => (a.checked - b.checked) || a.name.localeCompare(b.na
 function renderList() {
   const items = state.list.items;
   const hasRecipeItems = items.some((i) => !i.manual);
-  const stale = state.plan.length > 0 && (!hasRecipeItems || state.list.sig !== planSig());
+  const listMonday = state.list.week ? fromIso(state.list.week) : null;
+  const planned = weekMeals(viewMonday()).length > 0;
+  const stale = hasRecipeItems ? (!listMonday || state.list.sig !== weekSig(listMonday)) : planned;
   const regular = items.filter((i) => !isStapleItem(i));
   const staples = items.filter(isStapleItem).sort(sortItems);
   const groups = DEPTS.map((d) => ({ d, items: regular.filter((i) => itemDept(i) === d).sort(sortItems) })).filter((g) => g.items.length);
   const done = regular.filter((i) => i.checked).length;
   const banner = stale
-    ? `<div class="banner"><span>${hasRecipeItems ? 'Plan zmienił się od ostatniego generowania.' : 'Lista nie zawiera jeszcze dań z planu.'}</span><button type="button" class="btn primary sm" data-act="generate-here">${hasRecipeItems ? 'Odśwież' : 'Generuj'}</button></div>`
+    ? `<div class="banner"><span>${hasRecipeItems ? 'Plan zmienił się od ostatniego generowania.' : `Masz zaplanowany tydzień ${esc(weekRange(viewMonday()))}.`}</span><button type="button" class="btn primary sm" data-act="generate-here">${hasRecipeItems ? 'Odśwież' : 'Generuj'}</button></div>`
     : '';
   const body = items.length
     ? `${groups.map((g) => `
@@ -540,7 +663,7 @@ function renderList() {
           <h1>Lista zakupów</h1>
           ${items.length ? `<button type="button" class="icon-btn" data-act="share-list" aria-label="Udostępnij listę">${icon('share')}</button>` : ''}
         </div>
-        <p class="sub">${regular.length} ${plural(regular.length, 'produkt', 'produkty', 'produktów')} · ${done} w koszyku</p>
+        <p class="sub">${regular.length} ${plural(regular.length, 'produkt', 'produkty', 'produktów')} · ${done} w koszyku${hasRecipeItems && listMonday ? ` · tydzień ${esc(weekRange(listMonday))}` : ''}</p>
       </header>
       ${banner}
       <div class="add-row">
@@ -907,7 +1030,7 @@ function openBackup() {
     <label class="sr-only" for="json-in">JSON z przepisami</label>
     <textarea id="json-in" class="input" placeholder="[ { &quot;name&quot;: … } ]"></textarea>
     <button type="button" class="btn primary" data-act="json-import">Dodaj przepisy</button>
-    <p class="hint">Dane i zdjęcia produktów ze skanera: Open Food Facts (licencje ODbL i CC BY-SA).</p>`);
+    <p class="hint">Dane i zdjęcia produktów ze skanera: Open Food Facts (licencje ODbL i CC BY-SA). Wersja apki: ${APP_VERSION}.</p>`);
 }
 async function exportBackup() {
   const data = JSON.stringify(state, null, 2);
@@ -941,43 +1064,81 @@ function shareText() {
   return lines.join('\n');
 }
 
-function addPlan(rid, servings) {
-  const r = getRecipe(rid);
-  if (!r || inPlan(rid)) return;
-  state.plan.push({ recipeId: rid, servings: servings || Math.max(1, Math.round(r.servings || 1)) });
+function setMeal(dateKey, slotKey, value) {
+  const entry = { ...(state.meals[dateKey] || {}) };
+  if (value) entry[slotKey] = value;
+  else delete entry[slotKey];
+  if (Object.keys(entry).length) state.meals[dateKey] = entry;
+  else delete state.meals[dateKey];
 }
+const snapshotMeals = () => JSON.parse(JSON.stringify(state.meals));
 
 const actions = {
   'sheet-close': closeSheet,
   'sheet-backdrop': (el, ev) => { if (ev.target === el) closeSheet(); },
 
-  'plan-inc': (el) => {
-    const p = state.plan.find((x) => x.recipeId === el.dataset.rid);
-    if (p) { p.servings = Math.min(50, p.servings + 1); save(); render(); }
+  'week-prev': () => { weekOffset -= 1; picker = null; render(); },
+  'week-next': () => { weekOffset += 1; picker = null; render(); },
+  'scroll-day': (el) => {
+    const sec = document.getElementById(`dzien-${el.dataset.i}`);
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
-  'plan-dec': (el) => {
-    const p = state.plan.find((x) => x.recipeId === el.dataset.rid);
-    if (!p) return;
-    if (p.servings > 1) { p.servings -= 1; save(); render(); return; }
-    const before = state.plan.slice();
-    state.plan = state.plan.filter((x) => x !== p);
+  'slot-open': (el) => {
+    const same = picker && picker.date === el.dataset.date && picker.slot === el.dataset.slot;
+    picker = same ? null : { date: el.dataset.date, slot: el.dataset.slot };
+    pickerQuery = '';
+    render();
+    const p = $('#picker');
+    if (p) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  },
+  'picker-slot': (el) => { if (picker) { picker.slot = el.dataset.slot; render(); } },
+  'picker-choose': (el) => {
+    if (!picker) return;
+    const r = getRecipe(el.dataset.rid);
+    if (!r) return;
+    const cur = (state.meals[picker.date] || {})[picker.slot];
+    setMeal(picker.date, picker.slot, { recipeId: r.id, servings: cur ? cur.servings : Math.max(1, Math.round(r.servings || 1)) });
+    picker = null;
     save(); render();
-    toast('Usunięto z planu', () => { state.plan = before; save(); render(); });
   },
-  'plan-toggle': (el) => {
-    const rid = el.dataset.rid;
-    if (inPlan(rid)) state.plan = state.plan.filter((x) => x.recipeId !== rid);
-    else addPlan(rid);
+  'picker-clear': () => {
+    if (!picker) return;
+    const before = snapshotMeals();
+    setMeal(picker.date, picker.slot, null);
+    picker = null;
     save(); render();
+    toast('Usunięto z planu', () => { state.meals = before; save(); render(); });
   },
-  'clear-plan': () => {
-    const before = state.plan.slice();
-    state.plan = [];
+  'picker-close': () => { picker = null; render(); },
+  'meal-inc': (el) => {
+    const m = (state.meals[el.dataset.date] || {})[el.dataset.slot];
+    if (m) { m.servings = Math.min(50, (m.servings || 1) + 1); save(); render(); }
+  },
+  'meal-dec': (el) => {
+    const m = (state.meals[el.dataset.date] || {})[el.dataset.slot];
+    if (!m) return;
+    if (m.servings > 1) { m.servings -= 1; save(); render(); return; }
+    const before = snapshotMeals();
+    setMeal(el.dataset.date, el.dataset.slot, null);
+    if (picker && picker.date === el.dataset.date && picker.slot === el.dataset.slot) picker = null;
     save(); render();
-    toast('Plan wyczyszczony', () => { state.plan = before; save(); render(); });
+    toast('Usunięto z planu', () => { state.meals = before; save(); render(); });
   },
-  generate: () => { generateList(); location.hash = '#/lista'; },
-  'generate-here': () => { generateList(); render(); toast('Lista odświeżona'); },
+  'clear-week': () => {
+    const before = snapshotMeals();
+    for (const d of weekDates(viewMonday())) delete state.meals[iso(d)];
+    picker = null;
+    save(); render();
+    toast('Tydzień wyczyszczony', () => { state.meals = before; save(); render(); });
+  },
+  generate: () => { picker = null; generateList(viewMonday()); location.hash = '#/lista'; },
+  'generate-here': () => {
+    const hasRecipeItems = state.list.items.some((i) => !i.manual);
+    const monday = hasRecipeItems && state.list.week ? fromIso(state.list.week) : viewMonday();
+    generateList(monday);
+    render();
+    toast('Lista odświeżona');
+  },
 
   'new-recipe': () => {
     const r = { id: uid(), name: 'Nowy przepis', servings: 1, kcal: null, items: [] };
@@ -998,12 +1159,14 @@ const actions = {
     const rid = el.dataset.rid;
     const r = getRecipe(rid);
     const idx = state.recipes.indexOf(r);
-    const planBefore = state.plan.slice();
+    const mealsBefore = snapshotMeals();
     state.recipes = state.recipes.filter((x) => x.id !== rid);
-    state.plan = state.plan.filter((x) => x.recipeId !== rid);
+    for (const [dk, entry] of Object.entries(state.meals)) {
+      for (const slot of SLOTS) if (entry[slot.key] && entry[slot.key].recipeId === rid) setMeal(dk, slot.key, null);
+    }
     save();
     location.hash = '#/przepisy';
-    toast('Usunięto przepis', () => { state.recipes.splice(idx, 0, r); state.plan = planBefore; save(); render(); });
+    toast('Usunięto przepis', () => { state.recipes.splice(idx, 0, r); state.meals = mealsBefore; save(); render(); });
   },
   'add-ing': (el) => {
     const r = getRecipe(el.dataset.rid);
@@ -1152,7 +1315,8 @@ document.addEventListener('change', (ev) => {
       const data = JSON.parse(txt);
       if (!data || !Array.isArray(data.recipes)) throw new Error('bad');
       const before = state;
-      state = { v: 1, recipes: data.recipes, plan: data.plan || [], list: data.list || { items: [], sig: '' }, catalog: data.catalog || {}, barcodes: data.barcodes || {} };
+      state = normalizeState(data);
+      picker = null;
       save(); closeSheet(); render();
       toast('Wczytano kopię', () => { state = before; save(); render(); });
     }).catch(() => toast('Ten plik nie wygląda na kopię z tej apki'));
@@ -1167,6 +1331,11 @@ document.addEventListener('input', (ev) => {
     recipeQuery = ev.target.value;
     const box = $('#recipe-list');
     if (box) box.innerHTML = recipeCards();
+  }
+  if (ev.target.id === 'picker-search') {
+    pickerQuery = ev.target.value;
+    const box = $('#picker-options');
+    if (box) box.innerHTML = pickerOptions();
   }
 });
 
