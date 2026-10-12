@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.2';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -12,8 +12,31 @@ const offUrl = (code) =>
 
 const DEPTS = [
   'Warzywa i owoce', 'Pieczywo', 'Mięso i ryby', 'Nabiał i jaja', 'Mrożonki',
-  'Suche, puszki i słoiki', 'Przyprawy i sosy', 'Napoje', 'Chemia i dom', 'Inne',
+  'Suche, puszki i słoiki', 'Przyprawy i sosy', 'Słodycze i przekąski', 'Napoje', 'Chemia i dom', 'Inne',
 ];
+// Typowa ścieżka klienta w polskim Lidlu: pieczywo i warzywa przy wejściu, potem chłodnie
+// wzdłuż ścian (nabiał, mięso, mrożonki), środek sklepu, a przy kasach słodycze i napoje.
+const LIDL_ORDER = [
+  'Pieczywo', 'Warzywa i owoce', 'Nabiał i jaja', 'Mięso i ryby', 'Mrożonki', 'Suche, puszki i słoiki',
+  'Przyprawy i sosy', 'Słodycze i przekąski', 'Napoje', 'Chemia i dom', 'Inne',
+];
+const RECIPE_KINDS = [
+  { cat: 'sniadanie', sub: 'slodkie', label: 'Słodkie śniadanie' },
+  { cat: 'sniadanie', sub: 'slone', label: 'Słone śniadanie' },
+  { cat: 'obiad', sub: '', label: 'Obiad' },
+];
+const normCat = (v) => {
+  const s = String(v || '').toLowerCase();
+  if (/^(śniadanie|sniadanie|śniadania|sniadania|breakfast)/.test(s)) return 'sniadanie';
+  if (/^(obiad|obiady|lunch|dinner|kolacja)/.test(s)) return 'obiad';
+  return '';
+};
+const normSub = (v) => {
+  const s = String(v || '').toLowerCase();
+  if (/^(słodk|slodk|sweet)/.test(s)) return 'slodkie';
+  if (/^(słon|slon|savou?ry|salty)/.test(s)) return 'slone';
+  return '';
+};
 const UNIT_SUGGESTIONS = [
   'g', 'kg', 'ml', 'l', 'szt', 'opak.', 'puszka', 'słoik', 'łyżka', 'łyżeczka', 'szklanka',
   'szczypta', 'ząbek', 'plaster', 'garść', 'porcja', 'średnia sztuka', 'średnie opakowanie',
@@ -110,6 +133,8 @@ const ICONS = {
   camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   paste: '<rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6"/>',
   save: '<path d="M12 4v11M8 11l4 4 4-4"/><path d="M5 19h14"/>',
+  up: '<path d="M6 15l6-6 6 6"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
 };
 const icon = (name, size = 20, sw = 2) =>
   `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
@@ -124,6 +149,7 @@ const DEPT_RULES = [
   ['Nabiał i jaja', /mlek|mleko|jogurt|kefir|maślank|(^|\s)ser(\s|$|ek)|gouda|mozzarell|parmezan|feta|twaróg|twarog|śmietan|masło|jajk|jaja|skyr/],
   ['Mrożonki', /mrożon/],
   ['Warzywa i owoce', /ziemniak|cebul|czosn|marchew|marchw|pietruszk|seler|(^|\s)por(\s|$)|ogór|pomidor|papryk|sałat|rukol|szpinak|kapust|brokuł|kalafior|cukini|bakłażan|dyni|rzodkiew|szczypior|koper|natk|bazyli|mięt|imbir|cytryn|limonk|banan|jabł|grusz|pomarańcz|mandaryn|truskaw|malin|borówk|awokad|grzyb|pieczark|kiełk|winogron|kiwi/],
+  ['Słodycze i przekąski', /czekolad|baton|ciastk|ciasteczk|chips|cukierk|żelk|wafel|wafle|herbatnik|paluszk|krakers|popcorn|draż|pralin/],
   ['Napoje', /(^|\s)woda|(^|\s)sok(\s|$)|napój|napoj|cola|piwo|wino(\s|$)/],
   ['Chemia i dom', /papier|płyn|proszek do|kapsułki|gąbk|worki|folia|ręcznik|szampon|mydło|pasta do zębów/],
 ];
@@ -205,6 +231,7 @@ function seed() {
   const klopsiki = {
     id: 'klopsiki',
     name: "Klopsiki a'la Ikea w sosie z ziemniakami",
+    cat: 'obiad',
     servings: 1,
     kcal: 604,
     items: [
@@ -235,6 +262,8 @@ function seed() {
   const tortilla = {
     id: 'tortilla',
     name: 'Tortilla z tuńczykiem, serem i kukurydzą',
+    cat: 'sniadanie',
+    sub: 'slone',
     servings: 1,
     kcal: 708,
     items: [
@@ -291,13 +320,25 @@ function normalizeState(s) {
       meals[iso(addDays(m, i))] = { o: { recipeId: p.recipeId, servings: p.servings || 1 } };
     });
   }
+  // Wersja 1.2: kategorie przepisów. Dwa przepisy startowe dostają kategorię same.
+  const recipes = s.recipes.map((r) => {
+    if (r.cat !== undefined) return r;
+    if (r.id === 'klopsiki') return { ...r, cat: 'obiad' };
+    if (r.id === 'tortilla') return { ...r, cat: 'sniadanie', sub: 'slone' };
+    return { ...r, cat: '' };
+  });
+  const stores = Array.isArray(s.stores) && s.stores.length
+    ? s.stores
+    : [{ id: 'lidl', name: 'Lidl', order: LIDL_ORDER.slice() }];
   return {
     v: 1,
-    recipes: s.recipes,
+    recipes,
     meals,
     list: s.list && Array.isArray(s.list.items) ? s.list : { items: [], sig: '' },
     catalog: s.catalog || {},
     barcodes: s.barcodes || {},
+    stores,
+    activeStore: stores.some((x) => x.id === s.activeStore) ? s.activeStore : stores[0].id,
   };
 }
 function load() {
@@ -308,7 +349,7 @@ function load() {
       if (s && Array.isArray(s.recipes)) return normalizeState(s);
     }
   } catch (e) { /* uszkodzone dane — start od zera */ }
-  return seed();
+  return normalizeState(seed());
 }
 let state = load();
 function save() {
@@ -320,6 +361,15 @@ function save() {
 }
 
 const getRecipe = (id) => state.recipes.find((r) => r.id === id);
+const activeStore = () => state.stores.find((x) => x.id === state.activeStore) || state.stores[0];
+function deptOrder(store = activeStore()) {
+  const order = store.order.filter((d) => DEPTS.includes(d));
+  for (const d of DEPTS) if (!order.includes(d)) order.splice(Math.max(0, order.indexOf('Inne')) || order.length, 0, d);
+  return order;
+}
+const kindLabel = (r) => (r.cat === 'obiad' ? 'Obiad'
+  : r.cat === 'sniadanie' ? (r.sub === 'slodkie' ? 'Słodkie śniadanie' : r.sub === 'slone' ? 'Słone śniadanie' : 'Śniadanie')
+    : 'Bez kategorii');
 // Posiłki z danego tygodnia: [{ date, slot, recipe, servings }]
 function weekMeals(monday) {
   const out = [];
@@ -418,20 +468,34 @@ function tabbar(active) {
 
 let picker = null; // { date: 'YYYY-MM-DD', slot: 's' | 'o' }
 let pickerQuery = '';
+let pickerSub = 'all';
+
+const SUB_FILTERS = [['all', 'Wszystkie'], ['slodkie', 'Słodkie'], ['slone', 'Słone']];
+const byName = (a, b) => a.name.localeCompare(b.name, 'pl');
 
 function pickerOptions() {
   if (!picker) return '';
+  if (!state.recipes.length) return '<p class="hint">Nie masz jeszcze przepisów. <a href="#/przepisy">Dodaj pierwszy</a>.</p>';
   const cur = (state.meals[picker.date] || {})[picker.slot];
   const q = key(pickerQuery);
-  const rs = state.recipes
-    .filter((r) => !q || key(r.name).includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name, 'pl'));
-  if (!state.recipes.length) return '<p class="hint">Nie masz jeszcze przepisów. <a href="#/przepisy">Dodaj pierwszy</a>.</p>';
-  if (!rs.length) return '<p class="hint">Nic nie pasuje do wyszukiwania.</p>';
-  return rs.map((r) => {
+  const wantCat = picker.slot === 's' ? 'sniadanie' : 'obiad';
+  const searched = state.recipes.filter((r) => !q || key(r.name).includes(q));
+  const main = searched
+    .filter((r) => r.cat === wantCat && (wantCat !== 'sniadanie' || pickerSub === 'all' || r.sub === pickerSub))
+    .sort(byName);
+  const rest = searched.filter((r) => !main.includes(r)).sort(byName);
+  const btn = (r) => {
     const sel = !!cur && cur.recipeId === r.id;
     return `<button type="button" class="opt${sel ? ' on' : ''}" data-act="picker-choose" data-rid="${esc(r.id)}" aria-pressed="${sel}">${esc(r.name)}</button>`;
-  }).join('');
+  };
+  const what = wantCat === 'obiad' ? 'obiadów' : pickerSub === 'slodkie' ? 'słodkich śniadań' : pickerSub === 'slone' ? 'słonych śniadań' : 'śniadań';
+  let html = main.length
+    ? `<div class="opt-grid">${main.map(btn).join('')}</div>`
+    : `<p class="hint">${q ? 'Nic nie pasuje do wyszukiwania.' : `Nie masz jeszcze ${what}. Kategorię ustawisz w edycji przepisu.`}</p>`;
+  if (rest.length) {
+    html += `<details class="more"${main.length ? '' : ' open'}><summary>Pozostałe przepisy (${rest.length})</summary><div class="opt-grid">${rest.map(btn).join('')}</div></details>`;
+  }
+  return html;
 }
 function renderPicker(dateKey, dayIdx) {
   const slot = SLOTS.find((s) => s.key === picker.slot);
@@ -440,8 +504,9 @@ function renderPicker(dateKey, dayIdx) {
   return `<div class="picker" id="picker" role="group" aria-label="${esc(title)}">
     <p class="picker-title">${esc(title)}</p>
     <div class="seg">${SLOTS.map((s) => `<button type="button" data-act="picker-slot" data-slot="${s.key}" aria-pressed="${s.key === picker.slot}">${s.label}</button>`).join('')}</div>
+    ${picker.slot === 's' ? `<div class="chips" role="group" aria-label="Rodzaj śniadania">${SUB_FILTERS.map(([v, l]) => `<button type="button" class="chip" data-act="picker-sub" data-sub="${v}" aria-pressed="${pickerSub === v}">${l}</button>`).join('')}</div>` : ''}
     ${state.recipes.length > 6 ? `<label class="field"><span class="sr-only">Szukaj przepisu</span>${icon('search')}<input id="picker-search" type="search" placeholder="Szukaj przepisu" value="${esc(pickerQuery)}" autocomplete="off"></label>` : ''}
-    <div class="opt-grid" id="picker-options">${pickerOptions()}</div>
+    <div class="picker-opts" id="picker-options">${pickerOptions()}</div>
     <div class="btn-row">
       ${cur ? '<button type="button" class="btn sm danger" data-act="picker-clear">Usuń z planu</button>' : ''}
       <button type="button" class="btn sm" data-act="picker-close">Zamknij</button>
@@ -520,37 +585,54 @@ function renderPlan() {
 
 const recipeMeta = (r) => `${porcje(r.servings || 1)} · ${skladniki(r.items.length)}${r.kcal ? ` · ${r.kcal} kcal` : ''}`;
 let recipeQuery = '';
+let recipeTab = 'sniadanie'; // 'sniadanie' | 'obiad' | 'inne'
+let recipeSub = 'all';
+const inTab = (r, tab, sub) => (tab === 'inne' ? !r.cat
+  : r.cat === tab && (tab !== 'sniadanie' || sub === 'all' || r.sub === sub));
 function recipeCards() {
   const q = key(recipeQuery);
   const rs = state.recipes
-    .filter((r) => !q || key(r.name).includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name, 'pl'));
-  if (!rs.length) return `<div class="empty">${q ? 'Nic nie pasuje do wyszukiwania.' : 'Nie masz jeszcze przepisów.'}</div>`;
+    .filter((r) => inTab(r, recipeTab, recipeSub) && (!q || key(r.name).includes(q)))
+    .sort(byName);
+  if (!rs.length) {
+    const what = recipeTab === 'obiad' ? 'obiadów' : recipeTab === 'inne' ? 'przepisów bez kategorii'
+      : recipeSub === 'slodkie' ? 'słodkich śniadań' : recipeSub === 'slone' ? 'słonych śniadań' : 'śniadań';
+    return `<div class="empty">${q ? 'Nic nie pasuje do wyszukiwania.' : `Nie masz jeszcze ${what}.`}</div>`;
+  }
   const counts = {};
   for (const m of weekMeals(viewMonday())) counts[m.recipe.id] = (counts[m.recipe.id] || 0) + 1;
-  return `<ul class="card-list">${rs.map((r) => `
-    <li class="card">
+  return `<ul class="card-list">${rs.map((r) => {
+    const sub = r.cat === 'sniadanie' && r.sub ? `${r.sub === 'slodkie' ? 'Słodkie' : 'Słone'} · ` : '';
+    return `<li class="card">
       <a class="card-main" href="#/przepis/${encodeURIComponent(r.id)}">
         <span class="card-title">${esc(r.name)}</span>
-        <span class="card-meta">${esc(recipeMeta(r))}${counts[r.id] ? ` · <strong class="in-plan">${counts[r.id]}× w planie</strong>` : ''}</span>
+        <span class="card-meta">${esc(sub + recipeMeta(r))}${counts[r.id] ? ` · <strong class="in-plan">${counts[r.id]}× w planie</strong>` : ''}</span>
       </a>
       <span class="chev-muted">${icon('chev', 20)}</span>
-    </li>`).join('')}</ul>`;
+    </li>`;
+  }).join('')}</ul>`;
 }
 function renderRecipes() {
-  const count = state.recipes.length;
+  const n = (tab, sub = 'all') => state.recipes.filter((r) => inTab(r, tab, sub)).length;
+  const uncategorized = n('inne');
+  if (recipeTab === 'inne' && !uncategorized) recipeTab = 'sniadanie';
+  const tabs = [['sniadanie', 'Śniadania'], ['obiad', 'Obiady']];
+  if (uncategorized) tabs.push(['inne', 'Inne']);
   return `
     <main class="screen">
       <header class="head-row">
         <h1>Przepisy</h1>
         <button type="button" class="btn dark sm" data-act="new-recipe">${icon('plus', 18, 2.2)}<span>Nowy</span></button>
       </header>
+      <div class="seg" role="group" aria-label="Rodzaj posiłku" style="grid-template-columns: repeat(${tabs.length}, minmax(0, 1fr))">
+        ${tabs.map(([v, l]) => `<button type="button" data-act="recipe-tab" data-tab="${v}" aria-pressed="${recipeTab === v}">${l} <span class="seg-count">${n(v)}</span></button>`).join('')}
+      </div>
+      ${recipeTab === 'sniadanie' ? `<div class="chips" role="group" aria-label="Rodzaj śniadania">${SUB_FILTERS.map(([v, l]) => `<button type="button" class="chip" data-act="recipe-sub" data-sub="${v}" aria-pressed="${recipeSub === v}">${l} <span class="seg-count">${n('sniadanie', v)}</span></button>`).join('')}</div>` : ''}
       <label class="field">
         ${icon('search')}
         <span class="sr-only">Szukaj przepisu</span>
         <input id="recipe-search" type="search" placeholder="Szukaj przepisu" value="${esc(recipeQuery)}" autocomplete="off">
       </label>
-      <p class="sub">${count} ${plural(count, 'przepis', 'przepisy', 'przepisów')} · do planu dodajesz je w zakładce Plan</p>
       <div id="recipe-list">${recipeCards()}</div>
       <button type="button" class="link-btn" data-act="backup-open">Kopia zapasowa i import przepisów</button>
     </main>`;
@@ -581,6 +663,11 @@ function renderRecipe(id) {
       <a class="back" href="#/przepisy">${icon('back', 24)}<span>Przepisy</span></a>
       <label class="sr-only" for="r-name">Nazwa przepisu</label>
       <textarea id="r-name" class="title-input" rows="${r.name.length > 26 ? 2 : 1}" data-change="recipe-name" data-rid="${esc(r.id)}">${esc(r.name)}</textarea>
+      <div class="lbl">Kategoria
+        <div class="seg seg-kinds" role="group" aria-label="Kategoria przepisu">
+          ${RECIPE_KINDS.map((k) => `<button type="button" data-act="recipe-kind" data-rid="${esc(r.id)}" data-cat="${k.cat}" data-sub="${k.sub}" aria-pressed="${r.cat === k.cat && (k.cat !== 'sniadanie' || r.sub === k.sub)}">${k.label}</button>`).join('')}
+        </div>
+      </div>
       <div class="card">
         <div class="card-main">
           <span class="card-title" style="font-size:16px">Porcje w przepisie</span>
@@ -634,8 +721,12 @@ function renderList() {
   const stale = hasRecipeItems ? (!listMonday || state.list.sig !== weekSig(listMonday)) : planned;
   const regular = items.filter((i) => !isStapleItem(i));
   const staples = items.filter(isStapleItem).sort(sortItems);
-  const groups = DEPTS.map((d) => ({ d, items: regular.filter((i) => itemDept(i) === d).sort(sortItems) })).filter((g) => g.items.length);
+  const groups = deptOrder().map((d) => ({ d, items: regular.filter((i) => itemDept(i) === d).sort(sortItems) })).filter((g) => g.items.length);
   const done = regular.filter((i) => i.checked).length;
+  const storeRow = `<div class="store-row">
+      <div class="chips" role="group" aria-label="Sklep">${state.stores.map((s) => `<button type="button" class="chip" data-act="store-pick" data-id="${esc(s.id)}" aria-pressed="${s.id === state.activeStore}">${esc(s.name)}</button>`).join('')}</div>
+      <button type="button" class="link-btn" data-act="stores-open">Kolejność działów</button>
+    </div>`;
   const banner = stale
     ? `<div class="banner"><span>${hasRecipeItems ? 'Plan zmienił się od ostatniego generowania.' : `Masz zaplanowany tydzień ${esc(weekRange(viewMonday()))}.`}</span><button type="button" class="btn primary sm" data-act="generate-here">${hasRecipeItems ? 'Odśwież' : 'Generuj'}</button></div>`
     : '';
@@ -664,6 +755,7 @@ function renderList() {
           ${items.length ? `<button type="button" class="icon-btn" data-act="share-list" aria-label="Udostępnij listę">${icon('share')}</button>` : ''}
         </div>
         <p class="sub">${regular.length} ${plural(regular.length, 'produkt', 'produkty', 'produktów')} · ${done} w koszyku${hasRecipeItems && listMonday ? ` · tydzień ${esc(weekRange(listMonday))}` : ''}</p>
+        ${storeRow}
       </header>
       ${banner}
       <div class="add-row">
@@ -1014,7 +1106,9 @@ function normalizeRecipe(x) {
       const g = toNum(i.g ?? i.grams);
       return { id: uid(), name: String(i.name).trim(), brand: String(i.brand || '').trim(), qty, unit, g: g != null ? g : gramsFor(qty, unit, null) };
     });
-  return { id: uid(), name: String(x.name).trim(), servings: toNum(x.servings) || 1, kcal: toNum(x.kcal), items };
+  const cat = normCat(x.cat ?? x.type ?? x.kategoria);
+  const sub = cat === 'sniadanie' ? normSub(x.sub ?? x.subtype ?? x.rodzaj) : '';
+  return { id: uid(), name: String(x.name).trim(), cat, sub, servings: toNum(x.servings) || 1, kcal: toNum(x.kcal), items };
 }
 function openBackup() {
   openSheet(`
@@ -1026,7 +1120,7 @@ function openBackup() {
     </div>
     <input id="import-file" type="file" accept="application/json,.json" class="sr-only">
     <h3 class="section-title" style="font-size:18px;margin-top:8px">Dodaj przepisy z JSON</h3>
-    <p class="hint">Wyślij Claude'owi zrzuty przepisów i poproś o JSON w tym formacie, potem wklej go tutaj:<br><code>[{"name":"…","servings":1,"kcal":604,"items":[{"name":"Cebula","qty":0.2,"unit":"średnia sztuka","g":25}]}]</code></p>
+    <p class="hint">Wyślij Claude'owi zrzuty przepisów i poproś o JSON w tym formacie, potem wklej go tutaj:<br><code>[{"name":"…","cat":"sniadanie","sub":"slone","servings":1,"kcal":604,"items":[{"name":"Cebula","qty":0.2,"unit":"średnia sztuka","g":25}]}]</code><br>„cat” to sniadanie albo obiad, „sub” (tylko śniadania) to slodkie albo slone.</p>
     <label class="sr-only" for="json-in">JSON z przepisami</label>
     <textarea id="json-in" class="input" placeholder="[ { &quot;name&quot;: … } ]"></textarea>
     <button type="button" class="btn primary" data-act="json-import">Dodaj przepisy</button>
@@ -1051,8 +1145,8 @@ async function exportBackup() {
 
 function shareText() {
   const items = state.list.items.filter((i) => !isStapleItem(i) && !i.checked);
-  const lines = ['Lista zakupów'];
-  for (const d of DEPTS) {
+  const lines = [`Lista zakupów (${activeStore().name})`];
+  for (const d of deptOrder()) {
     const g = items.filter((i) => itemDept(i) === d).sort(sortItems);
     if (!g.length) continue;
     lines.push('', `${d}:`);
@@ -1073,9 +1167,88 @@ function setMeal(dateKey, slotKey, value) {
 }
 const snapshotMeals = () => JSON.parse(JSON.stringify(state.meals));
 
+/* --------------------------------------------------------- kolejność sklepu */
+
+function openStores() {
+  const prev = $('#sheet-root .sheet');
+  const scrollTop = prev ? prev.scrollTop : 0;
+  const store = activeStore();
+  const order = deptOrder(store);
+  openSheet(`
+    ${sheetHead('Kolejność w sklepie')}
+    <p class="sub">Lista zakupów układa działy w tej kolejności. Ustaw ją tak, jak idziesz przez sklep od wejścia do kas.</p>
+    <div class="chips" role="group" aria-label="Sklep">
+      ${state.stores.map((s) => `<button type="button" class="chip" data-act="store-pick" data-id="${esc(s.id)}" aria-pressed="${s.id === store.id}">${esc(s.name)}</button>`).join('')}
+      <button type="button" class="chip add" data-act="store-add">${icon('plus', 16, 2.2)}<span>Dodaj sklep</span></button>
+    </div>
+    <label class="lbl">Nazwa sklepu<input class="input" id="store-name" value="${esc(store.name)}" autocomplete="off" placeholder="np. Lidl Głogowska"></label>
+    <ol class="order-list">
+      ${order.map((d, i) => `<li class="order-row">
+        <span class="order-num">${i + 1}</span>
+        <span class="order-name">${esc(d)}</span>
+        <button type="button" class="icon-btn" data-act="dept-up" data-i="${i}" aria-label="Wyżej: ${esc(d)}"${i === 0 ? ' disabled' : ''}>${icon('up')}</button>
+        <button type="button" class="icon-btn" data-act="dept-down" data-i="${i}" aria-label="Niżej: ${esc(d)}"${i === order.length - 1 ? ' disabled' : ''}>${icon('down')}</button>
+      </li>`).join('')}
+    </ol>
+    <div class="btn-row">
+      <button type="button" class="btn sm" data-act="store-reset">Typowy układ Lidla</button>
+      ${state.stores.length > 1 ? '<button type="button" class="btn sm danger" data-act="store-delete">Usuń ten sklep</button>' : ''}
+    </div>
+    <button type="button" class="btn primary" data-act="sheet-close">Gotowe</button>`, (el) => { el.scrollTop = scrollTop; });
+}
+function moveDept(i, delta) {
+  const store = activeStore();
+  const order = deptOrder(store);
+  const j = i + delta;
+  if (j < 0 || j >= order.length) return;
+  [order[i], order[j]] = [order[j], order[i]];
+  store.order = order;
+  save(); render(); openStores();
+}
+
 const actions = {
   'sheet-close': closeSheet,
   'sheet-backdrop': (el, ev) => { if (ev.target === el) closeSheet(); },
+
+  'recipe-tab': (el) => { recipeTab = el.dataset.tab; recipeSub = 'all'; render(); },
+  'recipe-sub': (el) => { recipeSub = el.dataset.sub; render(); },
+  'recipe-kind': (el) => {
+    const r = getRecipe(el.dataset.rid);
+    if (!r) return;
+    r.cat = el.dataset.cat;
+    r.sub = el.dataset.sub || '';
+    save(); render();
+  },
+  'picker-sub': (el) => { pickerSub = el.dataset.sub; render(); },
+
+  'stores-open': openStores,
+  'store-pick': (el) => {
+    state.activeStore = el.dataset.id;
+    save(); render();
+    if ($('#sheet-root .sheet')) openStores();
+  },
+  'store-add': () => {
+    const s = { id: uid(), name: `Sklep ${state.stores.length + 1}`, order: deptOrder() };
+    state.stores.push(s);
+    state.activeStore = s.id;
+    save(); render(); openStores();
+    const input = $('#store-name');
+    if (input) { input.focus(); input.select(); }
+  },
+  'store-delete': (el) => {
+    if (el.dataset.armed !== '1') {
+      el.dataset.armed = '1';
+      el.textContent = 'Na pewno? Kliknij jeszcze raz';
+      return;
+    }
+    if (state.stores.length < 2) return;
+    state.stores = state.stores.filter((s) => s.id !== state.activeStore);
+    state.activeStore = state.stores[0].id;
+    save(); render(); openStores();
+  },
+  'store-reset': () => { activeStore().order = LIDL_ORDER.slice(); save(); render(); openStores(); },
+  'dept-up': (el) => moveDept(Number(el.dataset.i), -1),
+  'dept-down': (el) => moveDept(Number(el.dataset.i), 1),
 
   'week-prev': () => { weekOffset -= 1; picker = null; render(); },
   'week-next': () => { weekOffset += 1; picker = null; render(); },
@@ -1087,11 +1260,12 @@ const actions = {
     const same = picker && picker.date === el.dataset.date && picker.slot === el.dataset.slot;
     picker = same ? null : { date: el.dataset.date, slot: el.dataset.slot };
     pickerQuery = '';
+    pickerSub = 'all';
     render();
     const p = $('#picker');
     if (p) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   },
-  'picker-slot': (el) => { if (picker) { picker.slot = el.dataset.slot; render(); } },
+  'picker-slot': (el) => { if (picker) { picker.slot = el.dataset.slot; pickerSub = 'all'; render(); } },
   'picker-choose': (el) => {
     if (!picker) return;
     const r = getRecipe(el.dataset.rid);
@@ -1141,7 +1315,9 @@ const actions = {
   },
 
   'new-recipe': () => {
-    const r = { id: uid(), name: 'Nowy przepis', servings: 1, kcal: null, items: [] };
+    const cat = recipeTab === 'inne' ? '' : recipeTab;
+    const sub = cat === 'sniadanie' && recipeSub !== 'all' ? recipeSub : '';
+    const r = { id: uid(), name: 'Nowy przepis', cat, sub, servings: 1, kcal: null, items: [] };
     state.recipes.push(r);
     save();
     location.hash = `#/przepis/${encodeURIComponent(r.id)}`;
@@ -1302,7 +1478,7 @@ document.addEventListener('keydown', (ev) => {
     ev.preventDefault();
     const fn = actions[t.dataset.enter];
     if (fn) fn(t, ev);
-  } else if (t.id === 'r-name') {
+  } else if (t.id === 'r-name' || t.id === 'store-name') {
     ev.preventDefault();
     t.blur();
   }
@@ -1320,6 +1496,11 @@ document.addEventListener('change', (ev) => {
       save(); closeSheet(); render();
       toast('Wczytano kopię', () => { state = before; save(); render(); });
     }).catch(() => toast('Ten plik nie wygląda na kopię z tej apki'));
+    return;
+  }
+  if (t.id === 'store-name') {
+    activeStore().name = t.value.trim() || 'Sklep';
+    save(); render();
     return;
   }
   const r = t.dataset && t.dataset.rid ? getRecipe(t.dataset.rid) : null;
