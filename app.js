@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.4';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -89,10 +89,14 @@ const MONTHS = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'l
 const DAY_NAMES = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela'];
 const DAY_ACC = ['poniedziałek', 'wtorek', 'środę', 'czwartek', 'piątek', 'sobotę', 'niedzielę'];
 const DAY_SHORT = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
+// „d” (drugie śniadanie) jest opcjonalne: nie liczy się do wolnych miejsc
+// i w planie pokazuje się dopiero po dotknięciu „+ II śniadanie”.
 const SLOTS = [
-  { key: 's', label: 'Śniadanie', acc: 'śniadanie' },
-  { key: 'o', label: 'Obiad', acc: 'obiad' },
+  { key: 's', label: 'Śniadanie', acc: 'śniadanie', cat: 'sniadanie' },
+  { key: 'd', label: 'II śniadanie', acc: 'drugie śniadanie', cat: 'sniadanie', optional: true },
+  { key: 'o', label: 'Obiad', acc: 'obiad', cat: 'obiad' },
 ];
+const slotOf = (k) => SLOTS.find((s) => s.key === k) || SLOTS[0];
 const pad2 = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const fromIso = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
@@ -143,13 +147,13 @@ const icon = (name, size = 20, sw = 2) =>
 
 const DEPT_RULES = [
   ['Słodycze i przekąski', /czekolad|baton|ciastk|ciasteczk|chips|cukierk|żelk|wafel|wafle|herbatnik|paluszk|krakers|popcorn|draż|pralin/],
-  ['Suche, puszki i słoiki', /erytrytol|ksylitol|stewi|słodzik|proszek do pieczenia|drożdż|żelatyn|bułka tarta|mąka|skrobia|makaron|ryż|kasz[aey]|płatki|kukurydza|fasol|ciecierzyc|soczewic|pomidory krojone|passata|koncentrat|tuńczyk|sardyn|kiszon|oliwki|dżem|miód|cukier|orzech|migdał|rodzynk|kakao|herbat|kawa|mleko kokos|wiórki|siemię|nasiona|pestki/],
-  ['Przyprawy i sosy', /(^|\s)sól|pieprz|w proszku|granulowan|suszon|oregano|tymianek|cynamon|kardamon|goździk|gałka muszkat|wanili|kurkum|curry|kmin|majeranek|ziele angielskie|liść laurowy|bulion|kostka rosołowa|(^|\s)sos(\s|$)|ketchup|musztard|majonez|ocet|olej|oliwa|przyprawa/],
+  ['Suche, puszki i słoiki', /erytrytol|ksylitol|stewi|słodzik|proszek do pieczenia|śmietan fix|budyń|drożdż|żelatyn|bułka tarta|mąka|skrobia|makaron|ryż|kasz[aey]|płatki|kukurydza|fasol|ciecierzyc|soczewic|pomidory krojone|passata|koncentrat|tuńczyk|sardyn|kiszon|oliwki|dżem|miód|cukier|orzech|migdał|pistacj|sezam|mus jabłk|mus owoc|rodzynk|kakao|herbat|kawa|mleko kokos|wiórki|siemię|nasiona|pestki/],
+  ['Przyprawy i sosy', /(^|\s)sól|pieprz|w proszku|granulowan|suszon|oregano|tymianek|cynamon|kardamon|imbir mielony|goździk|gałka muszkat|ekstrakt wanili|aromat wanili|cukier wanili|laska wanili|wanilia|kurkum|curry|kmin|majeranek|ziele angielskie|liść laurowy|bulion|kostka rosołowa|(^|\s)sos(\s|$)|pesto|ketchup|musztard|majonez|ocet|olej|oliwa|przyprawa/],
   ['Pieczywo', /tortill|chleb|bułk|bagietk|(^|\s)pita|wrap|bajgiel|rogal|grzank|pieczywo/],
   ['Mięso i ryby', /mięs|mielon|kurczak|indyk|pierś|udk|wołow|wieprz|schab|boczek|szynk|kiełbas|parówk|łosoś|dorsz|krewet|ryb[aey]|filet|polędwic/],
-  ['Nabiał i jaja', /hummus|mlek|mleko|jogurt|kefir|maślank|(^|\s)ser(\s|$|ek)|gouda|mozzarell|parmezan|feta|twaróg|twarog|śmietan|masło|jajk|jaja|skyr/],
+  ['Nabiał i jaja', /hummus|kvarg|quark|mlek|mleko|jogurt|kefir|maślank|(^|\s)ser(\s|$|ek)|gouda|mozzarell|parmezan|feta|twaróg|twarog|śmietan|masło(?!w)|jajk|jaja|skyr/],
   ['Mrożonki', /mrożon/],
-  ['Warzywa i owoce', /ziemniak|cebul|czosn|marchew|marchw|pietruszk|seler|(^|\s)por(\s|$)|ogór|pomidor|papryk|sałat|rukol|roszponk|szpinak|kapust|brokuł|kalafior|cukini|bakłażan|dyni|rzodkiew|szczypior|koper|natk|bazyli|mięt|imbir|cytryn|limonk|banan|jabł|grusz|pomarańcz|mandaryn|truskaw|malin|borówk|awokad|grzyb|pieczark|kiełk|winogron|kiwi/],
+  ['Warzywa i owoce', /ziemniak|cebul|czosn|marchew|marchw|pietruszk|seler|(^|\s)por(\s|$)|ogór|pomidor|papryk|sałat|rukol|roszponk|szpinak|kapust|brokuł|kalafior|cukini|bakłażan|dyni|rzodkiew|szczypior|koper|natk|bazyli|mięt|imbir|cytryn|limonk|banan|jabł|grusz|śliwk|mango|ananas|pomarańcz|mandaryn|truskaw|malin|borówk|awokad|grzyb|pieczark|kiełk|winogron|kiwi/],
   ['Napoje', /(^|\s)woda|(^|\s)sok(\s|$)|napój|napoj|cola|piwo|wino(\s|$)/],
   ['Chemia i dom', /papier|płyn|proszek do prania|kapsułki|gąbk|worki|folia|ręcznik|szampon|mydło|pasta do zębów/],
 ];
@@ -360,6 +364,81 @@ function save() {
   }
 }
 
+/* ----------------------------------------------------------------- zdjęcia */
+// Zdjęcia przepisów są w IndexedDB, bo localStorage ma za mało miejsca
+// (kilka MB na całą apkę). W pamięci trzymam mapę: id przepisu → adres zdjęcia.
+const photos = new Map();
+const isPhotoUrl = (v) => typeof v === 'string' && /^(data:image\/|https:\/\/|img\/)/.test(v);
+let photoDbPromise = null;
+function photoDb() {
+  if (!photoDbPromise) {
+    photoDbPromise = new Promise((resolve, reject) => {
+      if (!window.indexedDB) { reject(new Error('Brak IndexedDB')); return; }
+      const rq = indexedDB.open('zakupy-zdjecia', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('photos');
+      rq.onsuccess = () => resolve(rq.result);
+      rq.onerror = () => reject(rq.error);
+    });
+  }
+  return photoDbPromise;
+}
+async function photoWrite(fn) {
+  const db = await photoDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('photos', 'readwrite');
+    fn(tx.objectStore('photos'));
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+function setPhoto(id, url) {
+  photos.set(id, url);
+  photoWrite((st) => st.put(url, id)).catch(() => toast('Nie udało się zapisać zdjęcia na telefonie'));
+}
+function removePhoto(id) {
+  photos.delete(id);
+  photoWrite((st) => st.delete(id)).catch(() => {});
+}
+async function loadPhotos() {
+  try {
+    const db = await photoDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('photos', 'readonly');
+      const rq = tx.objectStore('photos').openCursor();
+      rq.onsuccess = () => {
+        const c = rq.result;
+        if (c) { photos.set(c.key, c.value); c.continue(); }
+      };
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    // Sprzątam zdjęcia po przepisach usuniętych w poprzednich sesjach.
+    const ids = new Set(state.recipes.map((r) => r.id));
+    for (const id of [...photos.keys()]) if (!ids.has(id)) removePhoto(id);
+  } catch (e) { /* bez IndexedDB apka działa dalej, tylko bez zdjęć */ }
+}
+// Zdjęcie z telefonu zmniejszam do ~900 px, żeby nie zajmowało kilku MB.
+async function shrinkImage(file, max = 900, quality = 0.8) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = url;
+    });
+    const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * s);
+    c.height = Math.round(img.naturalHeight * s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', quality);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 const getRecipe = (id) => state.recipes.find((r) => r.id === id);
 const activeStore = () => state.stores.find((x) => x.id === state.activeStore) || state.stores[0];
 function deptOrder(store = activeStore()) {
@@ -478,14 +557,15 @@ function pickerOptions() {
   if (!state.recipes.length) return '<p class="hint">Nie masz jeszcze przepisów. <a href="#/przepisy">Dodaj pierwszy</a>.</p>';
   const cur = (state.meals[picker.date] || {})[picker.slot];
   const q = key(pickerQuery);
-  const wantCat = picker.slot === 's' ? 'sniadanie' : 'obiad';
+  const wantCat = slotOf(picker.slot).cat;
   const searched = state.recipes.filter((r) => !q || key(r.name).includes(q));
   const main = searched
     .filter((r) => r.cat === wantCat && (wantCat !== 'sniadanie' || pickerSub === 'all' || r.sub === pickerSub))
     .sort(byName);
   const btn = (r) => {
     const sel = !!cur && cur.recipeId === r.id;
-    return `<button type="button" class="opt${sel ? ' on' : ''}" data-act="picker-choose" data-rid="${esc(r.id)}" aria-pressed="${sel}">${esc(r.name)}</button>`;
+    const ph = photos.get(r.id);
+    return `<button type="button" class="opt${sel ? ' on' : ''}" data-act="picker-choose" data-rid="${esc(r.id)}" aria-pressed="${sel}">${ph ? `<img class="opt-photo" src="${esc(ph)}" alt="" loading="lazy">` : ''}<span>${esc(r.name)}</span></button>`;
   };
   const what = wantCat === 'obiad' ? 'obiadów' : pickerSub === 'slodkie' ? 'słodkich śniadań' : pickerSub === 'slone' ? 'słonych śniadań' : 'śniadań';
   return main.length
@@ -493,13 +573,13 @@ function pickerOptions() {
     : `<p class="hint">${q ? 'Nic nie pasuje do wyszukiwania.' : `Nie masz jeszcze ${what}. Kategorię przepisu ustawisz w jego edycji.`}</p>`;
 }
 function renderPicker(dateKey, dayIdx) {
-  const slot = SLOTS.find((s) => s.key === picker.slot);
+  const slot = slotOf(picker.slot);
   const cur = (state.meals[dateKey] || {})[picker.slot];
   const title = `Co na ${slot.acc} ${dayIdx === 1 ? 'we' : 'w'} ${DAY_ACC[dayIdx]}?`;
   return `<div class="picker" id="picker" role="group" aria-label="${esc(title)}">
     <p class="picker-title">${esc(title)}</p>
-    <div class="seg">${SLOTS.map((s) => `<button type="button" data-act="picker-slot" data-slot="${s.key}" aria-pressed="${s.key === picker.slot}">${s.label}</button>`).join('')}</div>
-    ${picker.slot === 's' ? `<div class="chips" role="group" aria-label="Rodzaj śniadania">${SUB_FILTERS.map(([v, l]) => `<button type="button" class="chip" data-act="picker-sub" data-sub="${v}" aria-pressed="${pickerSub === v}">${l}</button>`).join('')}</div>` : ''}
+    <div class="seg seg-3">${SLOTS.map((s) => `<button type="button" data-act="picker-slot" data-slot="${s.key}" aria-pressed="${s.key === picker.slot}">${s.label}</button>`).join('')}</div>
+    ${slot.cat === 'sniadanie' ? `<div class="chips" role="group" aria-label="Rodzaj śniadania">${SUB_FILTERS.map(([v, l]) => `<button type="button" class="chip" data-act="picker-sub" data-sub="${v}" aria-pressed="${pickerSub === v}">${l}</button>`).join('')}</div>` : ''}
     ${state.recipes.length > 6 ? `<label class="field"><span class="sr-only">Szukaj przepisu</span>${icon('search')}<input id="picker-search" type="search" placeholder="Szukaj przepisu" value="${esc(pickerQuery)}" autocomplete="off"></label>` : ''}
     <div class="picker-opts" id="picker-options">${pickerOptions()}</div>
     <div class="btn-row">
@@ -514,6 +594,7 @@ function renderPlan() {
   const todayKey = iso(new Date());
   let meals = 0;
   let total = 0;
+  let free = 0;
   const chips = [];
   const days = dates.map((d, i) => {
     const dk = iso(d);
@@ -523,6 +604,12 @@ function renderPlan() {
       const m = entry[slot.key];
       const r = m && getRecipe(m.recipeId);
       const active = picker && picker.date === dk && picker.slot === slot.key;
+      if (!r && !slot.optional) free += 1;
+      if (!r && slot.optional && !active) {
+        return `<button type="button" class="slot-extra" data-act="slot-open" data-date="${dk}" data-slot="${slot.key}" aria-label="Dodaj ${slot.acc} na ${DAY_ACC[i]} ${dateShort(d)}">
+          ${icon('plus', 16, 2.2)}<span>${slot.label}</span>
+        </button>`;
+      }
       if (r) {
         has[slot.key] = true;
         meals += 1;
@@ -546,10 +633,11 @@ function renderPlan() {
       </button>`;
     }).join('');
     const isToday = dk === todayKey;
-    chips.push(`<button type="button" class="day-chip${has.s || has.o ? ' has' : ''}${isToday ? ' today' : ''}" data-act="scroll-day" data-i="${i}" aria-label="${DAY_NAMES[i]} ${dateShort(d)}: śniadanie ${has.s ? 'jest' : 'brak'}, obiad ${has.o ? 'jest' : 'brak'}">
+    const brk = has.s || has.d;
+    chips.push(`<button type="button" class="day-chip${brk || has.o ? ' has' : ''}${isToday ? ' today' : ''}" data-act="scroll-day" data-i="${i}" aria-label="${DAY_NAMES[i]} ${dateShort(d)}: śniadanie ${brk ? 'jest' : 'brak'}, obiad ${has.o ? 'jest' : 'brak'}">
       <span class="dc-short">${DAY_SHORT[i]}</span>
       <span class="dc-num">${d.getDate()}</span>
-      <span class="dc-dots"><span class="dot${has.s ? ' on' : ''}"></span><span class="dot${has.o ? ' on' : ''}"></span></span>
+      <span class="dc-dots"><span class="dot${brk ? ' on' : ''}"></span><span class="dot${has.o ? ' on' : ''}"></span></span>
     </button>`);
     return `<section class="day" id="dzien-${i}">
       <h2 class="day-title"><span>${DAY_NAMES[i]}</span><span class="day-date">${dateShort(d)}</span>${isToday ? '<span class="today-tag">dziś</span>' : ''}</h2>
@@ -557,7 +645,6 @@ function renderPlan() {
       ${picker && picker.date === dk ? renderPicker(dk, i) : ''}
     </section>`;
   });
-  const free = 14 - meals;
   return `
     <main class="screen${meals ? ' has-cta' : ''}">
       <header class="head">
@@ -598,7 +685,9 @@ function recipeCards() {
   for (const m of weekMeals(viewMonday())) counts[m.recipe.id] = (counts[m.recipe.id] || 0) + 1;
   return `<ul class="card-list">${rs.map((r) => {
     const sub = r.cat === 'sniadanie' && r.sub ? `${r.sub === 'slodkie' ? 'Słodkie' : 'Słone'} · ` : '';
-    return `<li class="card">
+    const ph = photos.get(r.id);
+    return `<li class="card${ph ? ' has-photo' : ''}">
+      ${ph ? `<img class="card-photo" src="${esc(ph)}" alt="" loading="lazy">` : ''}
       <a class="card-main" href="#/przepis/${encodeURIComponent(r.id)}">
         <span class="card-title">${esc(r.name)}</span>
         <span class="card-meta">${esc(sub + recipeMeta(r))}${counts[r.id] ? ` · <strong class="in-plan">${counts[r.id]}× w planie</strong>` : ''}</span>
@@ -653,11 +742,15 @@ function renderRecipe(id) {
   if (!r) {
     return `<main class="screen"><a class="back" href="#/przepisy">${icon('back', 24)}<span>Przepisy</span></a><div class="empty">Nie ma takiego przepisu.</div></main>`;
   }
+  const ph = photos.get(r.id);
+  const steps = r.steps || [];
+  const photoInput = `<input id="photo-file" type="file" accept="image/*" class="sr-only" data-rid="${esc(r.id)}">`;
   return `
     <main class="screen">
       <a class="back" href="#/przepisy">${icon('back', 24)}<span>Przepisy</span></a>
+      ${ph ? `<figure class="recipe-photo"><img src="${esc(ph)}" alt="Zdjęcie: ${esc(r.name)}"></figure>` : ''}
       <label class="sr-only" for="r-name">Nazwa przepisu</label>
-      <textarea id="r-name" class="title-input" rows="${r.name.length > 26 ? 2 : 1}" data-change="recipe-name" data-rid="${esc(r.id)}">${esc(r.name)}</textarea>
+      <textarea id="r-name" class="title-input" rows="${Math.max(1, Math.ceil(r.name.length / 22))}" data-change="recipe-name" data-rid="${esc(r.id)}">${esc(r.name)}</textarea>
       <div class="lbl">Kategoria
         <div class="seg seg-kinds" role="group" aria-label="Kategoria przepisu">
           ${RECIPE_KINDS.map((k) => `<button type="button" data-act="recipe-kind" data-rid="${esc(r.id)}" data-cat="${k.cat}" data-sub="${k.sub}" aria-pressed="${r.cat === k.cat && (k.cat !== 'sniadanie' || r.sub === k.sub)}">${k.label}</button>`).join('')}
@@ -689,6 +782,25 @@ function renderRecipe(id) {
         <button type="button" class="square" data-act="add-ing" data-rid="${esc(r.id)}" aria-label="Dodaj składnik">${icon('plus', 22, 2.2)}</button>
       </div>
       <button type="button" class="btn" data-act="bulk-open" data-rid="${esc(r.id)}">${icon('paste')}<span>Wklej wiele składników naraz</span></button>
+      <section class="group">
+        <div class="head-row">
+          <h2 class="section-title">Przygotowanie</h2>
+          <button type="button" class="btn sm" data-act="steps-edit" data-rid="${esc(r.id)}">${steps.length ? 'Edytuj' : 'Dodaj'}</button>
+        </div>
+        ${steps.length
+          ? `<ol class="steps">${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>`
+          : '<div class="empty">Brak opisu przygotowania.</div>'}
+      </section>
+      <section class="group">
+        <h2 class="section-title">Zdjęcie</h2>
+        ${photoInput}
+        ${ph
+          ? `<div class="btn-row">
+              <label class="btn sm" for="photo-file">${icon('camera')}<span>Zmień</span></label>
+              <button type="button" class="btn sm danger" data-act="photo-remove" data-rid="${esc(r.id)}">Usuń zdjęcie</button>
+            </div>`
+          : `<label class="dashed" for="photo-file">${icon('camera')}<span>Dodaj zdjęcie</span></label>`}
+      </section>
       <button type="button" class="link-btn" style="color:var(--danger)" data-act="recipe-delete" data-rid="${esc(r.id)}">Usuń przepis</button>
     </main>`;
 }
@@ -708,6 +820,9 @@ function listRow(item) {
   </button></li>`;
 }
 const sortItems = (a, b) => (a.checked - b.checked) || a.name.localeCompare(b.name, 'pl');
+// Sekcja „Sprawdź w domu” musi zostać otwarta po odhaczeniu czegoś w środku,
+// bo każde odhaczenie przerysowuje cały ekran.
+let staplesOpen = false;
 function renderList() {
   const items = state.list.items;
   const hasRecipeItems = items.some((i) => !i.manual);
@@ -732,7 +847,7 @@ function renderList() {
           <ul class="group-list">${g.items.map(listRow).join('')}</ul>
         </section>`).join('')}
       ${staples.length ? `
-        <details class="group staples">
+        <details class="group staples"${staplesOpen ? ' open' : ''}>
           <summary><h2 class="group-title"><span>Sprawdź w domu</span><span>${staples.length}</span></h2><span class="chev">${icon('chev', 18)}</span></summary>
           <p class="hint" style="margin-bottom:8px">Produkty oznaczone jako „zawsze w domu”. Odhacz, jeśli trzeba dokupić.</p>
           <ul class="group-list">${staples.map(listRow).join('')}</ul>
@@ -783,11 +898,21 @@ function render() {
   else html = renderPlan();
   const tab = r.name === 'przepis' ? 'przepisy' : r.name === 'sklep' ? 'lista' : r.name;
   $('#app').innerHTML = html + tabbar(tab);
+  fitTitle();
   const sig = `${r.name}/${r.id || ''}`;
   if (sig !== lastRoute) window.scrollTo(0, 0);
   lastRoute = sig;
 }
 window.addEventListener('hashchange', render);
+// Tytuł przepisu to pole tekstowe: rośnie razem z nazwą, żeby nic nie ucinało.
+function fitTitle() {
+  const t = $('#r-name');
+  if (!t) return;
+  t.style.height = 'auto';
+  t.style.height = `${t.scrollHeight + (t.offsetHeight - t.clientHeight)}px`;
+}
+window.addEventListener('resize', fitTitle);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTitle);
 
 /* ------------------------------------------------------------------ toast */
 
@@ -1105,21 +1230,38 @@ function normalizeRecipe(x) {
     });
   const cat = normCat(x.cat ?? x.type ?? x.kategoria);
   const sub = cat === 'sniadanie' ? normSub(x.sub ?? x.subtype ?? x.rodzaj) : '';
-  return { id: uid(), name: String(x.name).trim(), cat, sub, servings: toNum(x.servings) || 1, kcal: toNum(x.kcal), items };
+  const steps = normSteps(x.steps ?? x.przygotowanie ?? x.instructions);
+  return { id: uid(), name: String(x.name).trim(), cat, sub, servings: toNum(x.servings) || 1, kcal: toNum(x.kcal), items, steps };
 }
-// Dodaje przepisy (pomija te, które już są) i uzupełnia katalog produktów,
-// nie nadpisując ustawień zrobionych ręcznie w apce.
+// Kroki przygotowania: lista albo tekst „jeden krok w linii”; numerację zdejmuję.
+function normSteps(v) {
+  const arr = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/\n+/) : [];
+  return arr.map((s) => String(s ?? '').replace(/^\s*\d+\s*[.)]\s*/, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+}
+// Dodaje nowe przepisy i uzupełnia katalog produktów, nie nadpisując ustawień
+// zrobionych ręcznie w apce. Przepisom, które już są, dokłada tylko brakujące
+// zdjęcie i opis przygotowania — składników nie rusza.
 function importRecipes(data) {
   const arr = Array.isArray(data) ? data : Array.isArray(data && data.recipes) ? data.recipes : [data];
-  const existing = new Set(state.recipes.map((r) => key(r.name)));
+  const byName = new Map(state.recipes.map((r) => [key(r.name), r]));
   const fresh = [];
   let skipped = 0;
+  let updated = 0;
   for (const x of arr) {
     const r = normalizeRecipe(x);
     if (!r) continue;
-    if (existing.has(key(r.name))) { skipped += 1; continue; }
-    existing.add(key(r.name));
+    const photo = isPhotoUrl(x.photo) ? x.photo : '';
+    const ex = byName.get(key(r.name));
+    if (ex) {
+      let touched = false;
+      if (r.steps.length && !(ex.steps && ex.steps.length)) { ex.steps = r.steps; touched = true; }
+      if (photo && !photos.has(ex.id)) { setPhoto(ex.id, photo); touched = true; }
+      if (touched) updated += 1; else skipped += 1;
+      continue;
+    }
+    byName.set(key(r.name), r);
     fresh.push(r);
+    if (photo) setPhoto(r.id, photo);
   }
   if (data && !Array.isArray(data) && data.catalog && typeof data.catalog === 'object') {
     for (const [k, v] of Object.entries(data.catalog)) {
@@ -1135,12 +1277,15 @@ function importRecipes(data) {
   }
   state.recipes.push(...fresh);
   save();
-  return { added: fresh.length, skipped };
+  return { added: fresh.length, skipped, updated };
 }
 function finishImport(res) {
-  if (!res.added && !res.skipped) { toast('Nie znalazłem przepisów'); return; }
+  if (!res.added && !res.skipped && !res.updated) { toast('Nie znalazłem przepisów'); return; }
   closeSheet(); render();
-  toast(`Dodano ${res.added} ${plural(res.added, 'przepis', 'przepisy', 'przepisów')}${res.skipped ? ` · pominięto ${res.skipped} (już są)` : ''}`);
+  const parts = [`Dodano ${res.added} ${plural(res.added, 'przepis', 'przepisy', 'przepisów')}`];
+  if (res.updated) parts.push(`uzupełniono ${res.updated}`);
+  if (res.skipped) parts.push(`pominięto ${res.skipped} (już są)`);
+  toast(parts.join(' · '));
 }
 function openBackup() {
   openSheet(`
@@ -1152,7 +1297,7 @@ function openBackup() {
     </div>
     <input id="import-file" type="file" accept="application/json,.json" class="sr-only">
     <h3 class="section-title" style="font-size:18px;margin-top:8px">Dodaj przepisy z JSON</h3>
-    <p class="hint">Wyślij Claude'owi zrzuty przepisów i poproś o JSON w tym formacie, potem wklej go tutaj:<br><code>[{"name":"…","cat":"sniadanie","sub":"slone","servings":1,"kcal":604,"items":[{"name":"Cebula","qty":0.2,"unit":"średnia sztuka","g":25}]}]</code><br>„cat” to sniadanie albo obiad, „sub” (tylko śniadania) to slodkie albo slone.</p>
+    <p class="hint">Wyślij Claude'owi zrzuty przepisów i poproś o JSON w tym formacie, potem wklej go tutaj:<br><code>[{"name":"…","cat":"sniadanie","sub":"slone","servings":1,"kcal":604,"items":[{"name":"Cebula","qty":0.2,"unit":"średnia sztuka","g":25}]}]</code><br>„cat” to sniadanie albo obiad, „sub” (tylko śniadania) to slodkie albo slone. Opcjonalnie „steps” (lista kroków) i „photo” (zdjęcie). Przepisom, które już masz, plik dołoży tylko brakujące zdjęcie i opis.</p>
     <label class="btn" for="recipes-file">${icon('paste')}<span>Wczytaj plik z przepisami</span></label>
     <input id="recipes-file" type="file" accept="application/json,.json,text/plain,.txt" class="sr-only">
     <label class="sr-only" for="json-in">JSON z przepisami</label>
@@ -1161,7 +1306,7 @@ function openBackup() {
     <p class="hint">Dane i zdjęcia produktów ze skanera: Open Food Facts (licencje ODbL i CC BY-SA). Wersja apki: ${APP_VERSION}.</p>`);
 }
 async function exportBackup() {
-  const data = JSON.stringify(state, null, 2);
+  const data = JSON.stringify({ ...state, photos: Object.fromEntries(photos) }, null, 2);
   const name = `zakupy-kopia-${new Date().toISOString().slice(0, 10)}.json`;
   const file = new File([data], name, { type: 'application/json' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -1413,6 +1558,33 @@ const actions = {
     save(); closeSheet(); render();
     toast(`Dodano ${skladniki(items.length)}`);
   },
+  'steps-edit': (el) => {
+    const r = getRecipe(el.dataset.rid);
+    if (!r) return;
+    openSheet(`
+      ${sheetHead('Przygotowanie')}
+      <p class="sub">Jeden krok w linii. Numery dopiszę sam.</p>
+      <label class="sr-only" for="steps-in">Kroki przygotowania</label>
+      <textarea id="steps-in" class="input" rows="10">${esc((r.steps || []).join('\n'))}</textarea>
+      <div class="btn-row">
+        <button type="button" class="btn" data-act="sheet-close">Anuluj</button>
+        <button type="button" class="btn primary" data-act="steps-save" data-rid="${esc(r.id)}">Zapisz</button>
+      </div>`, (s) => $('#steps-in', s).focus());
+  },
+  'steps-save': (el) => {
+    const r = getRecipe(el.dataset.rid);
+    if (!r) return;
+    r.steps = normSteps($('#steps-in').value || '');
+    save(); closeSheet(); render();
+  },
+  'photo-remove': (el) => {
+    const id = el.dataset.rid;
+    const prev = photos.get(id);
+    if (!prev) return;
+    removePhoto(id);
+    render();
+    toast('Usunięto zdjęcie', () => { setPhoto(id, prev); render(); });
+  },
   'edit-ing': (el) => openIngredient(el.dataset.rid, el.dataset.iid),
   'ing-save': () => { if (applyIngredientForm()) { closeSheet(); render(); } },
   'ing-delete': () => {
@@ -1521,6 +1693,13 @@ document.addEventListener('keydown', (ev) => {
 document.addEventListener('change', (ev) => {
   const t = ev.target;
   if (t.id === 'scan-photo' && t.files && t.files[0]) { scanFromPhoto(t.files[0]); return; }
+  if (t.id === 'photo-file' && t.files && t.files[0]) {
+    const rid = t.dataset.rid;
+    shrinkImage(t.files[0])
+      .then((url) => { setPhoto(rid, url); render(); })
+      .catch(() => toast('Nie mogę wczytać tego zdjęcia'));
+    return;
+  }
   if (t.id === 'recipes-file' && t.files && t.files[0]) {
     t.files[0].text()
       .then((txt) => finishImport(importRecipes(JSON.parse(txt))))
@@ -1531,11 +1710,21 @@ document.addEventListener('change', (ev) => {
     t.files[0].text().then((txt) => {
       const data = JSON.parse(txt);
       if (!data || !Array.isArray(data.recipes)) throw new Error('bad');
+      // Plik z samymi przepisami (np. od Claude'a) nie jest kopią: dopisuję
+      // przepisy zamiast podmieniać cały plan, listę i resztę danych.
+      if (data.v !== 1 || !data.meals || typeof data.meals !== 'object') { finishImport(importRecipes(data)); return; }
       const before = state;
+      const incoming = data.photos && typeof data.photos === 'object' ? Object.entries(data.photos) : [];
+      const prevPhotos = new Map(incoming.map(([id]) => [id, photos.get(id)]));
       state = normalizeState(data);
+      for (const [id, url] of incoming) if (isPhotoUrl(url)) setPhoto(id, url);
       picker = null;
       save(); closeSheet(); render();
-      toast('Wczytano kopię', () => { state = before; save(); render(); });
+      toast('Wczytano kopię', () => {
+        state = before;
+        for (const [id, url] of prevPhotos) { if (url) setPhoto(id, url); else removePhoto(id); }
+        save(); render();
+      });
     }).catch(() => toast('Ten plik nie wygląda na kopię z tej apki'));
     return;
   }
@@ -1551,7 +1740,12 @@ document.addEventListener('change', (ev) => {
   if (t.dataset.change === 'recipe-name' && r) { r.name = t.value.replace(/\s+/g, ' ').trim() || 'Bez nazwy'; save(); }
   if (t.dataset.change === 'recipe-kcal' && r) { r.kcal = toNum(t.value); save(); }
 });
+document.addEventListener('toggle', (ev) => {
+  const t = ev.target;
+  if (t && t.classList && t.classList.contains('staples')) staplesOpen = t.open;
+}, true);
 document.addEventListener('input', (ev) => {
+  if (ev.target.id === 'r-name') fitTitle();
   if (ev.target.id === 'recipe-search') {
     recipeQuery = ev.target.value;
     const box = $('#recipe-list');
@@ -1567,6 +1761,7 @@ document.addEventListener('input', (ev) => {
 /* ------------------------------------------------------------------- boot */
 
 render();
+loadPhotos().then(() => { if (photos.size) render(); });
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

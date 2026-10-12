@@ -109,6 +109,30 @@ h1 {
 .card-title { font-size: 17px; font-weight: 600; line-height: 1.3; }
 .card-tight .card-title { font-size: 16px; }
 .card-meta { font-size: 14px; color: var(--muted); }
+.card.has-photo { padding-left: 10px; }
+.card-photo { flex: none; width: 60px; height: 60px; border-radius: 12px; object-fit: cover; background: var(--surface-2); }
+.recipe-photo {
+  margin: 0;
+  aspect-ratio: 4 / 3;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.recipe-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: krok; display: flex; flex-direction: column; gap: 14px; }
+.steps li {
+  counter-increment: krok;
+  display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start;
+  font-size: 16px; line-height: 1.5;
+}
+.steps li::before {
+  content: counter(krok);
+  width: 28px; height: 28px; margin-top: -1px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  font-family: var(--mono); font-size: 14px; font-weight: 600;
+}
 .card-tight .card-meta { font-size: 13px; }
 
 .stepper { flex: none; display: flex; align-items: center; gap: 4px; }
@@ -440,8 +464,17 @@ textarea.input { height: auto; min-height: 170px; padding: 12px 14px; line-heigh
   gap: 12px;
   border: 0; text-align: left;
 }
-.slot-empty .slot-label { width: 92px; flex: none; }
+.slot-empty .slot-label { width: 112px; flex: none; }
 .slot-add { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; color: var(--accent); }
+.slot-extra {
+  width: 100%;
+  min-height: 44px; padding: 0 16px;
+  display: flex; align-items: center; gap: 6px;
+  border: 0; background: var(--surface-2);
+  text-align: left;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--muted);
+}
 .picker {
   display: flex; flex-direction: column; gap: 12px;
   padding: 14px;
@@ -465,8 +498,11 @@ textarea.input { height: auto; min-height: 170px; padding: 12px 14px; line-heigh
   color: var(--muted);
 }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.seg-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg-3 button { font-size: 14px; padding: 0 4px; line-height: 1.2; }
 .opt-grid { display: flex; flex-direction: column; gap: 8px; }
 .opt {
+  display: flex; align-items: center; gap: 10px;
   min-height: 52px; padding: 8px 12px;
   border: 1.5px solid var(--line);
   border-radius: 12px;
@@ -476,6 +512,7 @@ textarea.input { height: auto; min-height: 170px; padding: 12px 14px; line-heigh
   overflow-wrap: anywhere;
 }
 .opt.on { border-color: var(--accent); background: var(--accent-soft); }
+.opt-photo { flex: none; width: 44px; height: 44px; margin-left: -4px; border-radius: 8px; object-fit: cover; background: var(--surface-2); }
 .in-plan { color: var(--accent); font-weight: 600; }
 .chev-muted { flex: none; color: var(--muted); display: inline-flex; padding-right: 6px; }
 
