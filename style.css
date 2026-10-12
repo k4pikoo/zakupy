@@ -514,7 +514,8 @@ textarea.input { height: auto; min-height: 170px; padding: 12px 14px; line-heigh
   border-radius: 16px;
   overflow: hidden;
 }
-.order-row { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 6px 8px 6px 14px; background: var(--surface); }
+.order-row { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 6px 8px 6px 14px; background: var(--surface); transition: background 0.4s; }
+.order-row.moved { background: var(--accent-soft); }
 .order-num { width: 24px; flex: none; font-family: var(--mono); font-size: 14px; color: var(--muted); }
 .order-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 500; }
 .icon-btn[disabled] { opacity: 0.35; cursor: default; }
@@ -536,6 +537,8 @@ textarea.input { height: auto; min-height: 170px; padding: 12px 14px; line-heigh
   display: flex; flex-direction: column; gap: 14px;
 }
 .sheet h2 { margin: 0; font-family: var(--display); font-size: 24px; font-weight: 700; }
+/* Elementy okna nie mogą się ściskać: wtedy okno się przewija, zamiast obcinać treść. */
+.sheet > * { flex-shrink: 0; }
 .prod {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 10px 10px 12px;

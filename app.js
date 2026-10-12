@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.2';
+const APP_VERSION = '1.2.1';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -784,8 +784,10 @@ function render() {
   if (r.name === 'przepisy') html = renderRecipes();
   else if (r.name === 'przepis') html = renderRecipe(r.id);
   else if (r.name === 'lista') html = renderList();
+  else if (r.name === 'sklep') html = renderStores();
   else html = renderPlan();
-  $('#app').innerHTML = html + tabbar(r.name === 'przepis' ? 'przepisy' : r.name);
+  const tab = r.name === 'przepis' ? 'przepisy' : r.name === 'sklep' ? 'lista' : r.name;
+  $('#app').innerHTML = html + tabbar(tab);
   const sig = `${r.name}/${r.id || ''}`;
   if (sig !== lastRoute) window.scrollTo(0, 0);
   lastRoute = sig;
@@ -1169,32 +1171,36 @@ const snapshotMeals = () => JSON.parse(JSON.stringify(state.meals));
 
 /* --------------------------------------------------------- kolejność sklepu */
 
-function openStores() {
-  const prev = $('#sheet-root .sheet');
-  const scrollTop = prev ? prev.scrollTop : 0;
+let lastMoved = '';
+function renderStores() {
   const store = activeStore();
   const order = deptOrder(store);
-  openSheet(`
-    ${sheetHead('Kolejność w sklepie')}
-    <p class="sub">Lista zakupów układa działy w tej kolejności. Ustaw ją tak, jak idziesz przez sklep od wejścia do kas.</p>
-    <div class="chips" role="group" aria-label="Sklep">
-      ${state.stores.map((s) => `<button type="button" class="chip" data-act="store-pick" data-id="${esc(s.id)}" aria-pressed="${s.id === store.id}">${esc(s.name)}</button>`).join('')}
-      <button type="button" class="chip add" data-act="store-add">${icon('plus', 16, 2.2)}<span>Dodaj sklep</span></button>
-    </div>
-    <label class="lbl">Nazwa sklepu<input class="input" id="store-name" value="${esc(store.name)}" autocomplete="off" placeholder="np. Lidl Głogowska"></label>
-    <ol class="order-list">
-      ${order.map((d, i) => `<li class="order-row">
-        <span class="order-num">${i + 1}</span>
-        <span class="order-name">${esc(d)}</span>
-        <button type="button" class="icon-btn" data-act="dept-up" data-i="${i}" aria-label="Wyżej: ${esc(d)}"${i === 0 ? ' disabled' : ''}>${icon('up')}</button>
-        <button type="button" class="icon-btn" data-act="dept-down" data-i="${i}" aria-label="Niżej: ${esc(d)}"${i === order.length - 1 ? ' disabled' : ''}>${icon('down')}</button>
-      </li>`).join('')}
-    </ol>
-    <div class="btn-row">
-      <button type="button" class="btn sm" data-act="store-reset">Typowy układ Lidla</button>
-      ${state.stores.length > 1 ? '<button type="button" class="btn sm danger" data-act="store-delete">Usuń ten sklep</button>' : ''}
-    </div>
-    <button type="button" class="btn primary" data-act="sheet-close">Gotowe</button>`, (el) => { el.scrollTop = scrollTop; });
+  return `
+    <main class="screen">
+      <a class="back" href="#/lista">${icon('back', 24)}<span>Lista</span></a>
+      <header class="head">
+        <h1>Kolejność w sklepie</h1>
+        <p class="sub">Lista zakupów układa działy w tej kolejności. Ustaw ją tak, jak idziesz przez sklep od wejścia do kas.</p>
+      </header>
+      <div class="chips" role="group" aria-label="Sklep">
+        ${state.stores.map((s) => `<button type="button" class="chip" data-act="store-pick" data-id="${esc(s.id)}" aria-pressed="${s.id === store.id}">${esc(s.name)}</button>`).join('')}
+        <button type="button" class="chip add" data-act="store-add">${icon('plus', 16, 2.2)}<span>Dodaj sklep</span></button>
+      </div>
+      <label class="lbl">Nazwa sklepu<input class="input" id="store-name" value="${esc(store.name)}" autocomplete="off" enterkeyhint="done" placeholder="np. Lidl Głogowska"></label>
+      <ol class="order-list">
+        ${order.map((d, i) => `<li class="order-row${d === lastMoved ? ' moved' : ''}">
+          <span class="order-num">${i + 1}</span>
+          <span class="order-name">${esc(d)}</span>
+          <button type="button" class="icon-btn" data-act="dept-up" data-i="${i}" aria-label="Wyżej: ${esc(d)}"${i === 0 ? ' disabled' : ''}>${icon('up')}</button>
+          <button type="button" class="icon-btn" data-act="dept-down" data-i="${i}" aria-label="Niżej: ${esc(d)}"${i === order.length - 1 ? ' disabled' : ''}>${icon('down')}</button>
+        </li>`).join('')}
+      </ol>
+      <div class="btn-row">
+        <button type="button" class="btn sm" data-act="store-reset">Typowy układ Lidla</button>
+        ${state.stores.length > 1 ? '<button type="button" class="btn sm danger" data-act="store-delete">Usuń ten sklep</button>' : ''}
+      </div>
+      <a class="btn primary" href="#/lista">Gotowe</a>
+    </main>`;
 }
 function moveDept(i, delta) {
   const store = activeStore();
@@ -1203,7 +1209,8 @@ function moveDept(i, delta) {
   if (j < 0 || j >= order.length) return;
   [order[i], order[j]] = [order[j], order[i]];
   store.order = order;
-  save(); render(); openStores();
+  lastMoved = order[j];
+  save(); render();
 }
 
 const actions = {
@@ -1221,17 +1228,18 @@ const actions = {
   },
   'picker-sub': (el) => { pickerSub = el.dataset.sub; render(); },
 
-  'stores-open': openStores,
+  'stores-open': () => { lastMoved = ''; location.hash = '#/sklep'; },
   'store-pick': (el) => {
     state.activeStore = el.dataset.id;
+    lastMoved = '';
     save(); render();
-    if ($('#sheet-root .sheet')) openStores();
   },
   'store-add': () => {
     const s = { id: uid(), name: `Sklep ${state.stores.length + 1}`, order: deptOrder() };
     state.stores.push(s);
     state.activeStore = s.id;
-    save(); render(); openStores();
+    lastMoved = '';
+    save(); render();
     const input = $('#store-name');
     if (input) { input.focus(); input.select(); }
   },
@@ -1244,9 +1252,9 @@ const actions = {
     if (state.stores.length < 2) return;
     state.stores = state.stores.filter((s) => s.id !== state.activeStore);
     state.activeStore = state.stores[0].id;
-    save(); render(); openStores();
+    save(); render();
   },
-  'store-reset': () => { activeStore().order = LIDL_ORDER.slice(); save(); render(); openStores(); },
+  'store-reset': () => { activeStore().order = LIDL_ORDER.slice(); lastMoved = ''; save(); render(); },
   'dept-up': (el) => moveDept(Number(el.dataset.i), -1),
   'dept-down': (el) => moveDept(Number(el.dataset.i), 1),
 
@@ -1499,8 +1507,11 @@ document.addEventListener('change', (ev) => {
     return;
   }
   if (t.id === 'store-name') {
+    // Bez pełnego odświeżenia: tap w strzałkę zaraz po wpisaniu nazwy nie może przepaść.
     activeStore().name = t.value.trim() || 'Sklep';
-    save(); render();
+    save();
+    const chip = document.querySelector(`.chip[data-act="store-pick"][data-id="${CSS.escape(state.activeStore)}"]`);
+    if (chip) chip.textContent = activeStore().name;
     return;
   }
   const r = t.dataset && t.dataset.rid ? getRecipe(t.dataset.rid) : null;
