@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.3.1';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -483,19 +483,14 @@ function pickerOptions() {
   const main = searched
     .filter((r) => r.cat === wantCat && (wantCat !== 'sniadanie' || pickerSub === 'all' || r.sub === pickerSub))
     .sort(byName);
-  const rest = searched.filter((r) => !main.includes(r)).sort(byName);
   const btn = (r) => {
     const sel = !!cur && cur.recipeId === r.id;
     return `<button type="button" class="opt${sel ? ' on' : ''}" data-act="picker-choose" data-rid="${esc(r.id)}" aria-pressed="${sel}">${esc(r.name)}</button>`;
   };
   const what = wantCat === 'obiad' ? 'obiadów' : pickerSub === 'slodkie' ? 'słodkich śniadań' : pickerSub === 'slone' ? 'słonych śniadań' : 'śniadań';
-  let html = main.length
+  return main.length
     ? `<div class="opt-grid">${main.map(btn).join('')}</div>`
-    : `<p class="hint">${q ? 'Nic nie pasuje do wyszukiwania.' : `Nie masz jeszcze ${what}. Kategorię ustawisz w edycji przepisu.`}</p>`;
-  if (rest.length) {
-    html += `<details class="more"${main.length ? '' : ' open'}><summary>Pozostałe przepisy (${rest.length})</summary><div class="opt-grid">${rest.map(btn).join('')}</div></details>`;
-  }
-  return html;
+    : `<p class="hint">${q ? 'Nic nie pasuje do wyszukiwania.' : `Nie masz jeszcze ${what}. Kategorię przepisu ustawisz w jego edycji.`}</p>`;
 }
 function renderPicker(dateKey, dayIdx) {
   const slot = SLOTS.find((s) => s.key === picker.slot);
