@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.2.1';
+const APP_VERSION = '1.3';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -142,16 +142,16 @@ const icon = (name, size = 20, sw = 2) =>
 /* ------------------------------------------------------------- dział (aisle) */
 
 const DEPT_RULES = [
-  ['Suche, puszki i słoiki', /bułka tarta|mąka|skrobia|makaron|ryż|kasz[aey]|płatki|kukurydza|fasol|ciecierzyc|soczewic|pomidory krojone|passata|koncentrat|tuńczyk|sardyn|kiszon|oliwki|dżem|miód|cukier|orzech|migdał|rodzynk|kakao|herbat|kawa|mleko kokos|wiórki|siemię|nasiona|pestki/],
-  ['Przyprawy i sosy', /(^|\s)sól|pieprz|w proszku|granulowan|suszon|oregano|tymianek|cynamon|kurkum|curry|kmin|majeranek|ziele angielskie|liść laurowy|bulion|kostka rosołowa|(^|\s)sos(\s|$)|ketchup|musztard|majonez|ocet|olej|oliwa|przyprawa/],
+  ['Słodycze i przekąski', /czekolad|baton|ciastk|ciasteczk|chips|cukierk|żelk|wafel|wafle|herbatnik|paluszk|krakers|popcorn|draż|pralin/],
+  ['Suche, puszki i słoiki', /erytrytol|ksylitol|stewi|słodzik|proszek do pieczenia|drożdż|żelatyn|bułka tarta|mąka|skrobia|makaron|ryż|kasz[aey]|płatki|kukurydza|fasol|ciecierzyc|soczewic|pomidory krojone|passata|koncentrat|tuńczyk|sardyn|kiszon|oliwki|dżem|miód|cukier|orzech|migdał|rodzynk|kakao|herbat|kawa|mleko kokos|wiórki|siemię|nasiona|pestki/],
+  ['Przyprawy i sosy', /(^|\s)sól|pieprz|w proszku|granulowan|suszon|oregano|tymianek|cynamon|kardamon|goździk|gałka muszkat|wanili|kurkum|curry|kmin|majeranek|ziele angielskie|liść laurowy|bulion|kostka rosołowa|(^|\s)sos(\s|$)|ketchup|musztard|majonez|ocet|olej|oliwa|przyprawa/],
   ['Pieczywo', /tortill|chleb|bułk|bagietk|(^|\s)pita|wrap|bajgiel|rogal|grzank|pieczywo/],
   ['Mięso i ryby', /mięs|mielon|kurczak|indyk|pierś|udk|wołow|wieprz|schab|boczek|szynk|kiełbas|parówk|łosoś|dorsz|krewet|ryb[aey]|filet|polędwic/],
-  ['Nabiał i jaja', /mlek|mleko|jogurt|kefir|maślank|(^|\s)ser(\s|$|ek)|gouda|mozzarell|parmezan|feta|twaróg|twarog|śmietan|masło|jajk|jaja|skyr/],
+  ['Nabiał i jaja', /hummus|mlek|mleko|jogurt|kefir|maślank|(^|\s)ser(\s|$|ek)|gouda|mozzarell|parmezan|feta|twaróg|twarog|śmietan|masło|jajk|jaja|skyr/],
   ['Mrożonki', /mrożon/],
-  ['Warzywa i owoce', /ziemniak|cebul|czosn|marchew|marchw|pietruszk|seler|(^|\s)por(\s|$)|ogór|pomidor|papryk|sałat|rukol|szpinak|kapust|brokuł|kalafior|cukini|bakłażan|dyni|rzodkiew|szczypior|koper|natk|bazyli|mięt|imbir|cytryn|limonk|banan|jabł|grusz|pomarańcz|mandaryn|truskaw|malin|borówk|awokad|grzyb|pieczark|kiełk|winogron|kiwi/],
-  ['Słodycze i przekąski', /czekolad|baton|ciastk|ciasteczk|chips|cukierk|żelk|wafel|wafle|herbatnik|paluszk|krakers|popcorn|draż|pralin/],
+  ['Warzywa i owoce', /ziemniak|cebul|czosn|marchew|marchw|pietruszk|seler|(^|\s)por(\s|$)|ogór|pomidor|papryk|sałat|rukol|roszponk|szpinak|kapust|brokuł|kalafior|cukini|bakłażan|dyni|rzodkiew|szczypior|koper|natk|bazyli|mięt|imbir|cytryn|limonk|banan|jabł|grusz|pomarańcz|mandaryn|truskaw|malin|borówk|awokad|grzyb|pieczark|kiełk|winogron|kiwi/],
   ['Napoje', /(^|\s)woda|(^|\s)sok(\s|$)|napój|napoj|cola|piwo|wino(\s|$)/],
-  ['Chemia i dom', /papier|płyn|proszek do|kapsułki|gąbk|worki|folia|ręcznik|szampon|mydło|pasta do zębów/],
+  ['Chemia i dom', /papier|płyn|proszek do prania|kapsułki|gąbk|worki|folia|ręcznik|szampon|mydło|pasta do zębów/],
 ];
 const guessDept = (name) => {
   const n = key(name);
@@ -1112,6 +1112,41 @@ function normalizeRecipe(x) {
   const sub = cat === 'sniadanie' ? normSub(x.sub ?? x.subtype ?? x.rodzaj) : '';
   return { id: uid(), name: String(x.name).trim(), cat, sub, servings: toNum(x.servings) || 1, kcal: toNum(x.kcal), items };
 }
+// Dodaje przepisy (pomija te, które już są) i uzupełnia katalog produktów,
+// nie nadpisując ustawień zrobionych ręcznie w apce.
+function importRecipes(data) {
+  const arr = Array.isArray(data) ? data : Array.isArray(data && data.recipes) ? data.recipes : [data];
+  const existing = new Set(state.recipes.map((r) => key(r.name)));
+  const fresh = [];
+  let skipped = 0;
+  for (const x of arr) {
+    const r = normalizeRecipe(x);
+    if (!r) continue;
+    if (existing.has(key(r.name))) { skipped += 1; continue; }
+    existing.add(key(r.name));
+    fresh.push(r);
+  }
+  if (data && !Array.isArray(data) && data.catalog && typeof data.catalog === 'object') {
+    for (const [k, v] of Object.entries(data.catalog)) {
+      if (!v || typeof v !== 'object') continue;
+      const kk = key(k);
+      const cur = cat(kk);
+      const patch = {};
+      if (cur.packG == null && toNum(v.packG)) { patch.packG = toNum(v.packG); patch.packUnit = cur.packUnit || String(v.packUnit || 'opak.'); }
+      if (cur.staple == null && v.staple === true) patch.staple = true;
+      if (!cur.dept && DEPTS.includes(v.dept)) patch.dept = v.dept;
+      if (Object.keys(patch).length) setCat(kk, patch);
+    }
+  }
+  state.recipes.push(...fresh);
+  save();
+  return { added: fresh.length, skipped };
+}
+function finishImport(res) {
+  if (!res.added && !res.skipped) { toast('Nie znalazłem przepisów'); return; }
+  closeSheet(); render();
+  toast(`Dodano ${res.added} ${plural(res.added, 'przepis', 'przepisy', 'przepisów')}${res.skipped ? ` · pominięto ${res.skipped} (już są)` : ''}`);
+}
 function openBackup() {
   openSheet(`
     ${sheetHead('Kopia i import')}
@@ -1123,9 +1158,11 @@ function openBackup() {
     <input id="import-file" type="file" accept="application/json,.json" class="sr-only">
     <h3 class="section-title" style="font-size:18px;margin-top:8px">Dodaj przepisy z JSON</h3>
     <p class="hint">Wyślij Claude'owi zrzuty przepisów i poproś o JSON w tym formacie, potem wklej go tutaj:<br><code>[{"name":"…","cat":"sniadanie","sub":"slone","servings":1,"kcal":604,"items":[{"name":"Cebula","qty":0.2,"unit":"średnia sztuka","g":25}]}]</code><br>„cat” to sniadanie albo obiad, „sub” (tylko śniadania) to slodkie albo slone.</p>
+    <label class="btn" for="recipes-file">${icon('paste')}<span>Wczytaj plik z przepisami</span></label>
+    <input id="recipes-file" type="file" accept="application/json,.json,text/plain,.txt" class="sr-only">
     <label class="sr-only" for="json-in">JSON z przepisami</label>
-    <textarea id="json-in" class="input" placeholder="[ { &quot;name&quot;: … } ]"></textarea>
-    <button type="button" class="btn primary" data-act="json-import">Dodaj przepisy</button>
+    <textarea id="json-in" class="input" placeholder="…albo wklej tutaj tekst JSON"></textarea>
+    <button type="button" class="btn primary" data-act="json-import">Dodaj wklejone przepisy</button>
     <p class="hint">Dane i zdjęcia produktów ze skanera: Open Food Facts (licencje ODbL i CC BY-SA). Wersja apki: ${APP_VERSION}.</p>`);
 }
 async function exportBackup() {
@@ -1464,12 +1501,7 @@ const actions = {
   'json-import': () => {
     let data;
     try { data = JSON.parse($('#json-in').value); } catch (e) { toast('To nie jest poprawny JSON'); return; }
-    const arr = Array.isArray(data) ? data : Array.isArray(data.recipes) ? data.recipes : [data];
-    const recipes = arr.map(normalizeRecipe).filter(Boolean);
-    if (!recipes.length) { toast('Nie znalazłem przepisów w tym JSON'); return; }
-    state.recipes.push(...recipes);
-    save(); closeSheet(); render();
-    toast(`Dodano ${recipes.length} ${plural(recipes.length, 'przepis', 'przepisy', 'przepisów')}`);
+    finishImport(importRecipes(data));
   },
 };
 
@@ -1494,6 +1526,12 @@ document.addEventListener('keydown', (ev) => {
 document.addEventListener('change', (ev) => {
   const t = ev.target;
   if (t.id === 'scan-photo' && t.files && t.files[0]) { scanFromPhoto(t.files[0]); return; }
+  if (t.id === 'recipes-file' && t.files && t.files[0]) {
+    t.files[0].text()
+      .then((txt) => finishImport(importRecipes(JSON.parse(txt))))
+      .catch(() => toast('Nie mogę odczytać tego pliku z przepisami'));
+    return;
+  }
   if (t.id === 'import-file' && t.files && t.files[0]) {
     t.files[0].text().then((txt) => {
       const data = JSON.parse(txt);
