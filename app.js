@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -89,11 +89,11 @@ const MONTHS = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'l
 const DAY_NAMES = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela'];
 const DAY_ACC = ['poniedziałek', 'wtorek', 'środę', 'czwartek', 'piątek', 'sobotę', 'niedzielę'];
 const DAY_SHORT = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
-// „d” (drugie śniadanie) jest opcjonalne: nie liczy się do wolnych miejsc
-// i w planie pokazuje się dopiero po dotknięciu „+ II śniadanie”.
+// „d” to dodatkowy wiersz śniadania (np. kanapka + naleśniki): wygląda jak zwykłe
+// śniadanie, nie liczy się do wolnych miejsc i pojawia się po „+ Dodaj śniadanie”.
 const SLOTS = [
   { key: 's', label: 'Śniadanie', acc: 'śniadanie', cat: 'sniadanie' },
-  { key: 'd', label: 'II śniadanie', acc: 'drugie śniadanie', cat: 'sniadanie', optional: true },
+  { key: 'd', label: 'Śniadanie', acc: 'śniadanie', cat: 'sniadanie', optional: true },
   { key: 'o', label: 'Obiad', acc: 'obiad', cat: 'obiad' },
 ];
 const slotOf = (k) => SLOTS.find((s) => s.key === k) || SLOTS[0];
@@ -686,7 +686,7 @@ function renderPicker(dateKey, dayIdx) {
       <span class="picker-who-label">Dla kogo</span>
       <div class="seg seg-3 seg-who" role="group" aria-label="Dla kogo">${WHO.map(([v, l]) => `<button type="button" data-act="picker-who" data-who="${v}" aria-pressed="${picker.who === v}">${l}</button>`).join('')}</div>
     </div>
-    <div class="seg seg-3" role="group" aria-label="Posiłek">${SLOTS.map((s) => `<button type="button" data-act="picker-slot" data-slot="${s.key}" aria-pressed="${s.key === picker.slot}">${s.label}</button>`).join('')}</div>
+    <div class="seg" role="group" aria-label="Posiłek">${[['s', 'Śniadanie'], ['o', 'Obiad']].map(([k, l]) => `<button type="button" data-act="picker-slot" data-slot="${k}" aria-pressed="${slot.cat === slotOf(k).cat}">${l}</button>`).join('')}</div>
     ${slot.cat === 'sniadanie' ? `<div class="chips" role="group" aria-label="Rodzaj śniadania">${SUB_FILTERS.map(([v, l]) => `<button type="button" class="chip" data-act="picker-sub" data-sub="${v}" aria-pressed="${pickerSub === v}">${l}</button>`).join('')}</div>` : ''}
     ${state.recipes.length > 6 ? `<label class="field"><span class="sr-only">Szukaj przepisu</span>${icon('search')}<input id="picker-search" type="search" placeholder="Szukaj przepisu" value="${esc(pickerQuery)}" autocomplete="off"></label>` : ''}
     <div class="picker-opts" id="picker-options">${pickerOptions()}</div>
@@ -713,8 +713,10 @@ function renderPlan() {
       const at = `data-date="${dk}" data-slot="${slot.key}"`;
       if (!sr.length && !slot.optional) free += 1;
       if (!sr.length && slot.optional && !active) {
-        return `<button type="button" class="slot-extra" data-act="slot-open" ${at} aria-label="Dodaj ${slot.acc} na ${DAY_ACC[i]} ${dateShort(d)}">
-          ${icon('plus', 16, 2.2)}<span>${slot.label}</span>
+        // Dodatkowe śniadanie ma sens dopiero, gdy pierwsze jest już wybrane.
+        if (!slotRows(dk, 's').length) return '';
+        return `<button type="button" class="slot-extra" data-act="slot-open" ${at} aria-label="Dodaj kolejne śniadanie na ${DAY_ACC[i]} ${dateShort(d)}">
+          ${icon('plus', 16, 2.2)}<span>Dodaj śniadanie</span>
         </button>`;
       }
       if (!sr.length) {
@@ -726,25 +728,21 @@ function renderPlan() {
       has[slot.key] = true;
       const covered = new Set(sr.flatMap((m) => whoIds(m.who)));
       const missing = PEOPLE.filter((p) => !covered.has(p.id));
-      return sr.map((m, idx) => {
+      const cards = sr.map((m) => {
         const r = getRecipe(m.recipeId);
         const n = m.servings || 1;
+        const ids = whoIds(m.who);
         const forWhom = m.who === 'kz' ? 'Kacper i Zuzia' : personOf(m.who).name;
         meals += 1;
-        total += n * whoIds(m.who).length;
+        total += n * ids.length;
         const last = n <= 1;
-        const pills = whoIds(m.who).map((id) => `<span class="who who-${id}">${personOf(id).name}</span>`).join('');
-        const adds = idx === sr.length - 1
-          ? missing.map((p) => `<button type="button" class="who-add" data-act="slot-open" ${at} data-who="${p.id}" aria-label="Dodaj ${slot.acc} dla ${p.gen}, ${DAY_ACC[i]}">+ ${p.name}</button>`).join('')
-          : '';
+        const legend = ids.map((id) => `<span class="mw-${id}">${personOf(id).name}</span>`).join('<span class="mw-plus">+</span>');
         const w = `${at} data-who="${m.who}"`;
-        return `<div class="slot${active && picker.who === m.who ? ' active' : ''}">
-          <div class="slot-body">
-            <div class="slot-top"><span class="slot-label">${slot.label}</span>${pills}${adds}</div>
-            <button type="button" class="slot-main" data-act="slot-open" ${w} aria-label="Zmień ${slot.acc} (${forWhom}) na ${DAY_ACC[i]}: ${esc(r.name)}">
-              <span class="slot-name">${esc(r.name)}</span>
-            </button>
-          </div>
+        return `<div class="meal meal-${m.who}${active && picker.who === m.who ? ' active' : ''}">
+          <span class="meal-who">${legend}</span>
+          <button type="button" class="slot-main" data-act="slot-open" ${w} aria-label="Zmień ${slot.acc} (${forWhom}) na ${DAY_ACC[i]}: ${esc(r.name)}">
+            <span class="slot-name">${esc(r.name)}</span>
+          </button>
           <div class="stepper">
             <button type="button" class="icon-btn" data-act="meal-dec" ${w} aria-label="${last ? 'Usuń' : 'Mniej porcji'}: ${slot.acc}, ${forWhom}, ${DAY_ACC[i]}">${icon(last ? 'x' : 'minus')}</button>
             <span class="count">${esc(fmtNum(n))}</span>
@@ -752,6 +750,11 @@ function renderPlan() {
           </div>
         </div>`;
       }).join('');
+      const adds = missing.map((p) => `<button type="button" class="who-add who-add-${p.id}" data-act="slot-open" ${at} data-who="${p.id}" aria-label="Dodaj ${slot.acc} dla ${p.gen}, ${DAY_ACC[i]}">${icon('plus', 14, 2.4)}<span>${p.name}</span></button>`).join('');
+      return `<div class="slot slot-filled">
+        <div class="slot-top"><span class="slot-label">${slot.label}</span>${adds}</div>
+        ${cards}
+      </div>`;
     }).join('');
     const isToday = dk === todayKey;
     const brk = has.s || has.d;
@@ -1675,7 +1678,14 @@ const actions = {
     if (p) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   },
   'picker-who': (el) => { if (picker) { picker.who = el.dataset.who; render(); } },
-  'picker-slot': (el) => { if (picker) { picker.slot = el.dataset.slot; pickerSub = 'all'; render(); } },
+  'picker-slot': (el) => {
+    if (!picker) return;
+    // „Śniadanie” przy otwartym dodatkowym śniadaniu zostaje przy nim.
+    if (slotOf(el.dataset.slot).cat === slotOf(picker.slot).cat) return;
+    picker.slot = el.dataset.slot;
+    pickerSub = 'all';
+    render();
+  },
   'picker-choose': (el) => {
     if (!picker) return;
     const r = getRecipe(el.dataset.rid);

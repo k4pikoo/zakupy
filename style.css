@@ -12,8 +12,8 @@
   --danger: #A23B2A;
   --check-border: #84867E;
   --backdrop: rgba(12, 14, 12, 0.45);
-  --who-k: #1D4E86; --who-k-bg: #E0EAF6;
-  --who-z: #8A2B5A; --who-z-bg: #F5E1EB;
+  --who-k: #1D4E86; --who-k-bg: #E0EAF6; --who-k-line: #3F7FD0;
+  --who-z: #8A2B5A; --who-z-bg: #F5E1EB; --who-z-line: #CF5A95;
   --display: 'Bricolage Grotesque', ui-rounded, -apple-system, system-ui, sans-serif;
   --body: 'IBM Plex Sans', -apple-system, system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -36,8 +36,8 @@
     --danger: #E58A77;
     --check-border: #7D8279;
     --backdrop: rgba(0, 0, 0, 0.6);
-    --who-k: #A3C8F5; --who-k-bg: #1C2A3A;
-    --who-z: #F2AACB; --who-z-bg: #3A2231;
+    --who-k: #A3C8F5; --who-k-bg: #1C2A3A; --who-k-line: #5E97E3;
+    --who-z: #F2AACB; --who-z-bg: #3A2231; --who-z-line: #DE73AA;
     color-scheme: dark;
   }
 }
@@ -626,29 +626,64 @@ code { font-family: var(--mono); font-size: 13px; }
   font-weight: 700; text-decoration: underline; text-underline-offset: 3px;
 }
 
-/* ---------- osoby w planie */
-.slot-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.slot-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.slot-body .slot-main { flex: none; min-height: 30px; }
+/* ---------- osoby w planie: każde danie w ramce w kolorze osoby */
+.slot-filled {
+  flex-direction: column; align-items: stretch; gap: 14px;
+  padding: 10px 12px 14px;
+}
+.slot-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding-left: 4px; }
+.meal {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 8px 8px 14px;
+  border: 1.5px solid var(--who-k-line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.meal-z { border-color: var(--who-z-line); }
+.meal-kz {
+  border-color: transparent;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box,
+              linear-gradient(90deg, var(--who-k-line), var(--who-z-line)) border-box;
+}
+.meal.active { background: var(--accent-soft); }
+.meal-kz.active {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)) padding-box,
+              linear-gradient(90deg, var(--who-k-line), var(--who-z-line)) border-box;
+}
+.meal .slot-main { min-height: 44px; }
+/* Podpis osoby wpięty w górną krawędź ramki */
+.meal-who {
+  position: absolute; top: -8px; left: 10px;
+  display: inline-flex; gap: 4px;
+  padding: 0 6px;
+  background: var(--surface);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.05em; line-height: 15px; text-transform: uppercase;
+}
+.mw-k { color: var(--who-k); }
+.mw-z { color: var(--who-z); }
+.mw-plus { color: var(--muted); }
+.who-add {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 30px; padding: 0 10px 0 8px;
+  border: 1.5px dashed var(--who-k-line); border-radius: 10px;
+  background: transparent; color: var(--who-k);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.who-add-z { border-color: var(--who-z-line); color: var(--who-z); }
 .who {
   padding: 1px 7px; border-radius: 7px;
   font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
 }
 .who-k { color: var(--who-k); background: var(--who-k-bg); }
 .who-z { color: var(--who-z); background: var(--who-z-bg); }
-.who-add {
-  min-height: 28px; padding: 0 9px;
-  border: 1px dashed var(--check-border); border-radius: 8px;
-  background: transparent; color: var(--muted);
-  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-}
 .picker-who { display: flex; flex-direction: column; gap: 6px; }
 .picker-who-label {
   font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--muted);
 }
-.seg-who button[data-who="k"][aria-pressed="true"] { color: var(--who-k); }
-.seg-who button[data-who="z"][aria-pressed="true"] { color: var(--who-z); }
+.seg-who button[data-who="k"][aria-pressed="true"] { color: var(--who-k); box-shadow: inset 0 0 0 1.5px var(--who-k-line); }
+.seg-who button[data-who="z"][aria-pressed="true"] { color: var(--who-z); box-shadow: inset 0 0 0 1.5px var(--who-z-line); }
 
 /* ---------- zakres listy */
 .range-btn {
