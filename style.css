@@ -12,6 +12,8 @@
   --danger: #A23B2A;
   --check-border: #84867E;
   --backdrop: rgba(12, 14, 12, 0.45);
+  --who-k: #1D4E86; --who-k-bg: #E0EAF6;
+  --who-z: #8A2B5A; --who-z-bg: #F5E1EB;
   --display: 'Bricolage Grotesque', ui-rounded, -apple-system, system-ui, sans-serif;
   --body: 'IBM Plex Sans', -apple-system, system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -34,6 +36,8 @@
     --danger: #E58A77;
     --check-border: #7D8279;
     --backdrop: rgba(0, 0, 0, 0.6);
+    --who-k: #A3C8F5; --who-k-bg: #1C2A3A;
+    --who-z: #F2AACB; --who-z-bg: #3A2231;
     color-scheme: dark;
   }
 }
@@ -271,6 +275,8 @@ h1 {
   -webkit-appearance: none; appearance: none;
 }
 .input:focus { border-color: var(--accent); }
+input[type="date"].input { display: flex; align-items: center; color: var(--ink); font-family: var(--mono); font-size: 16px; }
+.btn[disabled] { opacity: 0.45; cursor: default; }
 select.input {
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
   background-position: calc(100% - 20px) 21px, calc(100% - 15px) 21px;
@@ -619,3 +625,39 @@ code { font-family: var(--mono); font-size: 13px; }
   border: 0; background: none; color: inherit;
   font-weight: 700; text-decoration: underline; text-underline-offset: 3px;
 }
+
+/* ---------- osoby w planie */
+.slot-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.slot-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.slot-body .slot-main { flex: none; min-height: 30px; }
+.who {
+  padding: 1px 7px; border-radius: 7px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.who-k { color: var(--who-k); background: var(--who-k-bg); }
+.who-z { color: var(--who-z); background: var(--who-z-bg); }
+.who-add {
+  min-height: 28px; padding: 0 9px;
+  border: 1px dashed var(--check-border); border-radius: 8px;
+  background: transparent; color: var(--muted);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.picker-who { display: flex; flex-direction: column; gap: 6px; }
+.picker-who-label {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.seg-who button[data-who="k"][aria-pressed="true"] { color: var(--who-k); }
+.seg-who button[data-who="z"][aria-pressed="true"] { color: var(--who-z); }
+
+/* ---------- zakres listy */
+.range-btn {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 38px; margin-top: 2px; padding: 0 14px 0 12px;
+  border: 1px solid var(--line); border-radius: 19px;
+  background: var(--surface); color: var(--ink);
+  font-size: 14px; font-weight: 600;
+}
+.range-btn svg { color: var(--muted); }
+.range-edit { color: var(--accent); }

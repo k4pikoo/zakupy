@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.5';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -97,6 +97,17 @@ const SLOTS = [
   { key: 'o', label: 'Obiad', acc: 'obiad', cat: 'obiad' },
 ];
 const slotOf = (k) => SLOTS.find((s) => s.key === k) || SLOTS[0];
+// Każdy posiłek w planie jest czyjś: state.meals[data][slot] = { k?: wpis, z?: wpis },
+// a „Oboje” to po prostu ten sam przepis u obu osób.
+const PEOPLE = [
+  { id: 'k', name: 'Kacper', gen: 'Kacpra' },
+  { id: 'z', name: 'Zuzia', gen: 'Zuzi' },
+];
+const WHO = [['k', 'Kacper'], ['z', 'Zuzia'], ['kz', 'Oboje']];
+const whoIds = (who) => (who === 'kz' ? ['k', 'z'] : [who]);
+const personOf = (id) => PEOPLE.find((p) => p.id === id) || PEOPLE[0];
+// Miejsce na przyszłe wersje przepisów pod makro każdej osoby; na razie porcja to porcja.
+const portionFactor = (/* personId, recipe */) => 1;
 const pad2 = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const fromIso = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
@@ -324,6 +335,19 @@ function normalizeState(s) {
       meals[iso(addDays(m, i))] = { o: { recipeId: p.recipeId, servings: p.servings || 1 } };
     });
   }
+  // Wersja 1.5: posiłki przypisane do osób. Wcześniejsze wpisy trafiają do Kacpra
+  // z tą samą liczbą porcji, więc lista zakupów wychodzi identyczna jak przed aktualizacją.
+  for (const [dk, entry] of Object.entries(meals)) {
+    if (!entry || typeof entry !== 'object') { delete meals[dk]; continue; }
+    for (const [slot, v] of Object.entries(entry)) {
+      if (v && v.recipeId) entry[slot] = { k: v };
+      else if (!v || typeof v !== 'object' || !(v.k || v.z)) delete entry[slot];
+    }
+    if (!Object.keys(entry).length) delete meals[dk];
+  }
+  // Wersja 1.5: lista z dowolnego zakresu dat zamiast „tygodnia od poniedziałku”.
+  let list = s.list && Array.isArray(s.list.items) ? s.list : { items: [], sig: '' };
+  if (list.week && !list.from) list = { ...list, from: list.week, to: iso(addDays(fromIso(list.week), 6)) };
   // Wersja 1.2: kategorie przepisów. Dwa przepisy startowe dostają kategorię same.
   const recipes = s.recipes.map((r) => {
     if (r.cat !== undefined) return r;
@@ -338,11 +362,16 @@ function normalizeState(s) {
     v: 1,
     recipes,
     meals,
-    list: s.list && Array.isArray(s.list.items) ? s.list : { items: [], sig: '' },
+    list,
     catalog: s.catalog || {},
     barcodes: s.barcodes || {},
     stores,
     activeStore: stores.some((x) => x.id === s.activeStore) ? s.activeStore : stores[0].id,
+    // Dla kogo ostatnio wybierano danie w danym rodzaju posiłku.
+    lastWho: { s: 'kz', d: 'kz', o: 'kz', ...(s.lastWho || {}) },
+    // Od którego dnia tygodnia i na ile dni zwykle robisz listę (6 = sobota).
+    listPrefs: s.listPrefs && Number.isInteger(s.listPrefs.startDow) && s.listPrefs.days > 0
+      ? s.listPrefs : { startDow: 1, days: 7 },
   };
 }
 function load() {
@@ -478,18 +507,37 @@ function deptOrder(store = activeStore()) {
 const kindLabel = (r) => (r.cat === 'obiad' ? 'Obiad'
   : r.cat === 'sniadanie' ? (r.sub === 'slodkie' ? 'Słodkie śniadanie' : r.sub === 'slone' ? 'Słone śniadanie' : 'Śniadanie')
     : 'Bez kategorii');
-// Posiłki z danego tygodnia: [{ date, slot, recipe, servings }]
-function weekMeals(monday) {
+const rangeDates = (from, to) => {
   const out = [];
-  for (const d of weekDates(monday)) {
+  for (let d = from; d <= to && out.length < 62; d = addDays(d, 1)) out.push(d);
+  return out;
+};
+const daysBetween = (from, to) => Math.round((to - from) / 86400000) + 1;
+// Posiłki z zakresu dat, osobno dla każdej osoby: [{ date, slot, person, recipe, servings }]
+function mealsInRange(from, to) {
+  const out = [];
+  for (const d of rangeDates(from, to)) {
     const entry = state.meals[iso(d)] || {};
     for (const slot of SLOTS) {
-      const m = entry[slot.key];
-      const r = m && getRecipe(m.recipeId);
-      if (r) out.push({ date: d, slot: slot.key, recipe: r, servings: m.servings || 1 });
+      const byPerson = entry[slot.key] || {};
+      for (const p of PEOPLE) {
+        const m = byPerson[p.id];
+        const r = m && getRecipe(m.recipeId);
+        if (r) out.push({ date: d, slot: slot.key, person: p.id, recipe: r, servings: m.servings || 1 });
+      }
     }
   }
   return out;
+}
+const weekMeals = (monday) => mealsInRange(monday, addDays(monday, 6));
+// Wiersze jednego posiłku w planie: wspólny wiersz „Oboje”, gdy obie osoby mają
+// ten sam przepis i tyle samo porcji, inaczej osobny wiersz na osobę.
+function slotRows(dk, slotKey) {
+  const e = (state.meals[dk] || {})[slotKey] || {};
+  const k = e.k && getRecipe(e.k.recipeId) ? e.k : null;
+  const z = e.z && getRecipe(e.z.recipeId) ? e.z : null;
+  if (k && z && k.recipeId === z.recipeId && (k.servings || 1) === (z.servings || 1)) return [{ who: 'kz', ...k }];
+  return [k && { who: 'k', ...k }, z && { who: 'z', ...z }].filter(Boolean);
 }
 const cat = (k) => state.catalog[k] || {};
 const catFor = (name) => cat(key(name));
@@ -501,18 +549,18 @@ function setCat(k, patch) {
   else delete state.catalog[k];
 }
 
-function weekSig(monday) {
-  return hash(JSON.stringify(weekMeals(monday).map((m) =>
-    [iso(m.date), m.slot, m.recipe.id, m.servings, m.recipe.servings, m.recipe.items.map((i) => [i.name, i.qty, i.unit, i.g])])));
+function rangeSig(from, to) {
+  return hash(JSON.stringify(mealsInRange(from, to).map((m) =>
+    [iso(m.date), m.slot, m.person, m.recipe.id, m.servings, m.recipe.servings, m.recipe.items.map((i) => [i.name, i.qty, i.unit, i.g])])));
 }
 
 /* -------------------------------------------------------- list generation */
 
-function generateList(monday) {
+function generateList(from, to) {
   const agg = new Map();
-  for (const meal of weekMeals(monday)) {
+  for (const meal of mealsInRange(from, to)) {
     const r = meal.recipe;
-    const f = meal.servings / (r.servings || 1);
+    const f = (meal.servings * portionFactor(meal.person, r)) / (r.servings || 1);
     for (const ing of r.items) {
       const k = key(ing.name);
       if (!k) continue;
@@ -543,8 +591,24 @@ function generateList(monday) {
     checked: prevChecked.get(e.key) || false,
   }));
   const manual = state.list.items.filter((i) => i.manual);
-  state.list = { items: [...fromRecipes, ...manual], sig: weekSig(monday), week: iso(monday), at: Date.now() };
+  state.list = { items: [...fromRecipes, ...manual], sig: rangeSig(from, to), from: iso(from), to: iso(to), at: Date.now() };
   save();
+}
+const DAY_ABBR = ['niedz.', 'pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.'];
+const rangeText = (from, to) => `${DAY_ABBR[from.getDay()]} ${dateShort(from)} – ${DAY_ABBR[to.getDay()]} ${dateShort(to)}`;
+const listRange = () => (state.list.from && state.list.to ? { from: fromIso(state.list.from), to: fromIso(state.list.to) } : null);
+// Domyślny zakres listy: od najbliższego „Twojego” dnia startu (np. soboty) na tyle dni,
+// ile ostatnio. W bieżącym tygodniu liczę od dziś, w innym od jego poniedziałku.
+function defaultRange() {
+  const { startDow, days } = state.listPrefs;
+  const t = new Date();
+  const base = weekOffset === 0 ? new Date(t.getFullYear(), t.getMonth(), t.getDate()) : viewMonday();
+  let from = addDays(base, (startDow - base.getDay() + 7) % 7);
+  // Gdy na nadchodzący okres nic jeszcze nie ma, a na bieżący jest — biorę bieżący.
+  const prev = addDays(from, -7);
+  if (from > base && !mealsInRange(from, addDays(from, days - 1)).length
+    && mealsInRange(prev, addDays(prev, days - 1)).length) from = prev;
+  return { from, to: addDays(from, days - 1) };
 }
 
 function qtyText(item) {
@@ -574,17 +638,23 @@ function tabbar(active) {
   return `<nav class="tabbar" aria-label="Nawigacja">${tab('plan', 'Plan', 'plan')}${tab('przepisy', 'Przepisy', 'book')}${tab('lista', 'Lista', 'basket')}</nav>`;
 }
 
-let picker = null; // { date: 'YYYY-MM-DD', slot: 's' | 'o' }
+let picker = null; // { date: 'YYYY-MM-DD', slot: 's' | 'd' | 'o', who: 'k' | 'z' | 'kz' }
 let pickerQuery = '';
 let pickerSub = 'all';
 
 const SUB_FILTERS = [['all', 'Wszystkie'], ['slodkie', 'Słodkie'], ['slone', 'Słone']];
 const byName = (a, b) => a.name.localeCompare(b.name, 'pl');
 
+// Wpis, który podmieni wybór w pickerze (dla „Oboje” tylko wtedy, gdy oboje mają to samo).
+function pickerCurrent() {
+  const e = (state.meals[picker.date] || {})[picker.slot] || {};
+  if (picker.who === 'kz') return e.k && e.z && e.k.recipeId === e.z.recipeId ? e.k : null;
+  return e[picker.who] || null;
+}
 function pickerOptions() {
   if (!picker) return '';
   if (!state.recipes.length) return '<p class="hint">Nie masz jeszcze przepisów. <a href="#/przepisy">Dodaj pierwszy</a>.</p>';
-  const cur = (state.meals[picker.date] || {})[picker.slot];
+  const cur = pickerCurrent();
   const q = key(pickerQuery);
   const wantCat = slotOf(picker.slot).cat;
   const searched = state.recipes.filter((r) => !q || key(r.name).includes(q));
@@ -603,16 +673,22 @@ function pickerOptions() {
 }
 function renderPicker(dateKey, dayIdx) {
   const slot = slotOf(picker.slot);
-  const cur = (state.meals[dateKey] || {})[picker.slot];
-  const title = `Co na ${slot.acc} ${dayIdx === 1 ? 'we' : 'w'} ${DAY_ACC[dayIdx]}?`;
+  const cur = pickerCurrent();
+  const subject = picker.who === 'kz' ? 'zjecie' : `zje ${personOf(picker.who).name}`;
+  const title = `Co ${subject} na ${slot.acc} ${dayIdx === 1 ? 'we' : 'w'} ${DAY_ACC[dayIdx]}?`;
+  const clearLabel = picker.who === 'kz' ? 'Usuń z planu' : `Usuń z planu ${personOf(picker.who).gen}`;
   return `<div class="picker" id="picker" role="group" aria-label="${esc(title)}">
     <p class="picker-title">${esc(title)}</p>
-    <div class="seg seg-3">${SLOTS.map((s) => `<button type="button" data-act="picker-slot" data-slot="${s.key}" aria-pressed="${s.key === picker.slot}">${s.label}</button>`).join('')}</div>
+    <div class="picker-who">
+      <span class="picker-who-label">Dla kogo</span>
+      <div class="seg seg-3 seg-who" role="group" aria-label="Dla kogo">${WHO.map(([v, l]) => `<button type="button" data-act="picker-who" data-who="${v}" aria-pressed="${picker.who === v}">${l}</button>`).join('')}</div>
+    </div>
+    <div class="seg seg-3" role="group" aria-label="Posiłek">${SLOTS.map((s) => `<button type="button" data-act="picker-slot" data-slot="${s.key}" aria-pressed="${s.key === picker.slot}">${s.label}</button>`).join('')}</div>
     ${slot.cat === 'sniadanie' ? `<div class="chips" role="group" aria-label="Rodzaj śniadania">${SUB_FILTERS.map(([v, l]) => `<button type="button" class="chip" data-act="picker-sub" data-sub="${v}" aria-pressed="${pickerSub === v}">${l}</button>`).join('')}</div>` : ''}
     ${state.recipes.length > 6 ? `<label class="field"><span class="sr-only">Szukaj przepisu</span>${icon('search')}<input id="picker-search" type="search" placeholder="Szukaj przepisu" value="${esc(pickerQuery)}" autocomplete="off"></label>` : ''}
     <div class="picker-opts" id="picker-options">${pickerOptions()}</div>
     <div class="btn-row">
-      ${cur ? '<button type="button" class="btn sm danger" data-act="picker-clear">Usuń z planu</button>' : ''}
+      ${cur ? `<button type="button" class="btn sm danger" data-act="picker-clear">${esc(clearLabel)}</button>` : ''}
       <button type="button" class="btn sm" data-act="picker-close">Zamknij</button>
     </div>
   </div>`;
@@ -627,39 +703,52 @@ function renderPlan() {
   const chips = [];
   const days = dates.map((d, i) => {
     const dk = iso(d);
-    const entry = state.meals[dk] || {};
     const has = {};
     const rows = SLOTS.map((slot) => {
-      const m = entry[slot.key];
-      const r = m && getRecipe(m.recipeId);
+      const sr = slotRows(dk, slot.key);
       const active = picker && picker.date === dk && picker.slot === slot.key;
-      if (!r && !slot.optional) free += 1;
-      if (!r && slot.optional && !active) {
-        return `<button type="button" class="slot-extra" data-act="slot-open" data-date="${dk}" data-slot="${slot.key}" aria-label="Dodaj ${slot.acc} na ${DAY_ACC[i]} ${dateShort(d)}">
+      const at = `data-date="${dk}" data-slot="${slot.key}"`;
+      if (!sr.length && !slot.optional) free += 1;
+      if (!sr.length && slot.optional && !active) {
+        return `<button type="button" class="slot-extra" data-act="slot-open" ${at} aria-label="Dodaj ${slot.acc} na ${DAY_ACC[i]} ${dateShort(d)}">
           ${icon('plus', 16, 2.2)}<span>${slot.label}</span>
         </button>`;
       }
-      if (r) {
-        has[slot.key] = true;
+      if (!sr.length) {
+        return `<button type="button" class="slot slot-empty${active ? ' active' : ''}" data-act="slot-open" ${at} aria-label="Wybierz ${slot.acc} na ${DAY_ACC[i]} ${dateShort(d)}">
+          <span class="slot-label">${slot.label}</span>
+          <span class="slot-add">${icon('plus', 18, 2.2)}<span>Wybierz danie</span></span>
+        </button>`;
+      }
+      has[slot.key] = true;
+      const covered = new Set(sr.flatMap((m) => whoIds(m.who)));
+      const missing = PEOPLE.filter((p) => !covered.has(p.id));
+      return sr.map((m, idx) => {
+        const r = getRecipe(m.recipeId);
+        const n = m.servings || 1;
+        const forWhom = m.who === 'kz' ? 'Kacper i Zuzia' : personOf(m.who).name;
         meals += 1;
-        total += m.servings;
-        const last = m.servings <= 1;
-        return `<div class="slot${active ? ' active' : ''}">
-          <button type="button" class="slot-main" data-act="slot-open" data-date="${dk}" data-slot="${slot.key}" aria-label="Zmień ${slot.acc} na ${DAY_ACC[i]}: ${esc(r.name)}">
-            <span class="slot-label">${slot.label}</span>
-            <span class="slot-name">${esc(r.name)}</span>
-          </button>
+        total += n * whoIds(m.who).length;
+        const last = n <= 1;
+        const pills = whoIds(m.who).map((id) => `<span class="who who-${id}">${personOf(id).name}</span>`).join('');
+        const adds = idx === sr.length - 1
+          ? missing.map((p) => `<button type="button" class="who-add" data-act="slot-open" ${at} data-who="${p.id}" aria-label="Dodaj ${slot.acc} dla ${p.gen}, ${DAY_ACC[i]}">+ ${p.name}</button>`).join('')
+          : '';
+        const w = `${at} data-who="${m.who}"`;
+        return `<div class="slot${active && picker.who === m.who ? ' active' : ''}">
+          <div class="slot-body">
+            <div class="slot-top"><span class="slot-label">${slot.label}</span>${pills}${adds}</div>
+            <button type="button" class="slot-main" data-act="slot-open" ${w} aria-label="Zmień ${slot.acc} (${forWhom}) na ${DAY_ACC[i]}: ${esc(r.name)}">
+              <span class="slot-name">${esc(r.name)}</span>
+            </button>
+          </div>
           <div class="stepper">
-            <button type="button" class="icon-btn" data-act="meal-dec" data-date="${dk}" data-slot="${slot.key}" aria-label="${last ? 'Usuń' : 'Mniej porcji'}: ${slot.acc}, ${DAY_ACC[i]}">${icon(last ? 'x' : 'minus')}</button>
-            <span class="count">${esc(fmtNum(m.servings))}</span>
-            <button type="button" class="icon-btn" data-act="meal-inc" data-date="${dk}" data-slot="${slot.key}" aria-label="Więcej porcji: ${slot.acc}, ${DAY_ACC[i]}">${icon('plus')}</button>
+            <button type="button" class="icon-btn" data-act="meal-dec" ${w} aria-label="${last ? 'Usuń' : 'Mniej porcji'}: ${slot.acc}, ${forWhom}, ${DAY_ACC[i]}">${icon(last ? 'x' : 'minus')}</button>
+            <span class="count">${esc(fmtNum(n))}</span>
+            <button type="button" class="icon-btn" data-act="meal-inc" ${w} aria-label="Więcej porcji: ${slot.acc}, ${forWhom}, ${DAY_ACC[i]}">${icon('plus')}</button>
           </div>
         </div>`;
-      }
-      return `<button type="button" class="slot slot-empty${active ? ' active' : ''}" data-act="slot-open" data-date="${dk}" data-slot="${slot.key}" aria-label="Wybierz ${slot.acc} na ${DAY_ACC[i]} ${dateShort(d)}">
-        <span class="slot-label">${slot.label}</span>
-        <span class="slot-add">${icon('plus', 18, 2.2)}<span>Wybierz danie</span></span>
-      </button>`;
+      }).join('');
     }).join('');
     const isToday = dk === todayKey;
     const brk = has.s || has.d;
@@ -711,7 +800,14 @@ function recipeCards() {
     return `<div class="empty">${q ? 'Nic nie pasuje do wyszukiwania.' : `Nie masz jeszcze ${what}.`}</div>`;
   }
   const counts = {};
-  for (const m of weekMeals(viewMonday())) counts[m.recipe.id] = (counts[m.recipe.id] || 0) + 1;
+  // Wspólny obiad dla dwojga to jeden posiłek w planie, nie dwa.
+  const seen = new Set();
+  for (const m of weekMeals(viewMonday())) {
+    const k = `${iso(m.date)}|${m.slot}|${m.recipe.id}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    counts[m.recipe.id] = (counts[m.recipe.id] || 0) + 1;
+  }
   return `<ul class="card-list">${rs.map((r) => {
     const sub = r.cat === 'sniadanie' && r.sub ? `${r.sub === 'slodkie' ? 'Słodkie' : 'Słone'} · ` : '';
     const ph = photoOf(r.id);
@@ -855,9 +951,10 @@ let staplesOpen = false;
 function renderList() {
   const items = state.list.items;
   const hasRecipeItems = items.some((i) => !i.manual);
-  const listMonday = state.list.week ? fromIso(state.list.week) : null;
-  const planned = weekMeals(viewMonday()).length > 0;
-  const stale = hasRecipeItems ? (!listMonday || state.list.sig !== weekSig(listMonday)) : planned;
+  const lr = listRange();
+  const dr = defaultRange();
+  const planned = mealsInRange(dr.from, dr.to).length > 0;
+  const stale = hasRecipeItems ? (!lr || state.list.sig !== rangeSig(lr.from, lr.to)) : planned;
   const regular = items.filter((i) => !isStapleItem(i));
   const staples = items.filter(isStapleItem).sort(sortItems);
   const groups = deptOrder().map((d) => ({ d, items: regular.filter((i) => itemDept(i) === d).sort(sortItems) })).filter((g) => g.items.length);
@@ -867,7 +964,7 @@ function renderList() {
       <button type="button" class="link-btn" data-act="stores-open">Kolejność działów</button>
     </div>`;
   const banner = stale
-    ? `<div class="banner"><span>${hasRecipeItems ? 'Plan zmienił się od ostatniego generowania.' : `Masz zaplanowany tydzień ${esc(weekRange(viewMonday()))}.`}</span><button type="button" class="btn primary sm" data-act="generate-here">${hasRecipeItems ? 'Odśwież' : 'Generuj'}</button></div>`
+    ? `<div class="banner"><span>${hasRecipeItems ? 'Plan zmienił się od ostatniego generowania.' : `Masz zaplanowane posiłki na ${esc(rangeText(dr.from, dr.to))}.`}</span><button type="button" class="btn primary sm" data-act="generate-here">${hasRecipeItems ? 'Odśwież' : 'Generuj'}</button></div>`
     : '';
   const body = items.length
     ? `${groups.map((g) => `
@@ -893,7 +990,8 @@ function renderList() {
           <h1>Lista zakupów</h1>
           ${items.length ? `<button type="button" class="icon-btn" data-act="share-list" aria-label="Udostępnij listę">${icon('share')}</button>` : ''}
         </div>
-        <p class="sub">${regular.length} ${plural(regular.length, 'produkt', 'produkty', 'produktów')} · ${done} w koszyku${hasRecipeItems && listMonday ? ` · tydzień ${esc(weekRange(listMonday))}` : ''}</p>
+        <p class="sub">${regular.length} ${plural(regular.length, 'produkt', 'produkty', 'produktów')} · ${done} w koszyku</p>
+        ${hasRecipeItems && lr ? `<button type="button" class="range-btn" data-act="range-open" aria-label="Zakres listy: ${esc(rangeText(lr.from, lr.to))}. Zmień zakres">${icon('plan', 16)}<span>${esc(rangeText(lr.from, lr.to))}</span><span class="range-edit">zmień</span></button>` : ''}
         ${storeRow}
       </header>
       ${banner}
@@ -1356,7 +1454,8 @@ async function exportBackup() {
 
 function shareText() {
   const items = state.list.items.filter((i) => !isStapleItem(i) && !i.checked);
-  const lines = [`Lista zakupów (${activeStore().name})`];
+  const lr = listRange();
+  const lines = [`Lista zakupów (${activeStore().name})${lr ? ` · ${rangeText(lr.from, lr.to)}` : ''}`];
   for (const d of deptOrder()) {
     const g = items.filter((i) => itemDept(i) === d).sort(sortItems);
     if (!g.length) continue;
@@ -1369,14 +1468,68 @@ function shareText() {
   return lines.join('\n');
 }
 
-function setMeal(dateKey, slotKey, value) {
-  const entry = { ...(state.meals[dateKey] || {}) };
-  if (value) entry[slotKey] = value;
-  else delete entry[slotKey];
-  if (Object.keys(entry).length) state.meals[dateKey] = entry;
+// Ustawia (albo usuwa, gdy value = null) danie jednej osoby w jednym posiłku.
+function setPersonMeal(dateKey, slotKey, personId, value) {
+  const day = { ...(state.meals[dateKey] || {}) };
+  const slot = { ...(day[slotKey] || {}) };
+  if (value) slot[personId] = value;
+  else delete slot[personId];
+  if (Object.keys(slot).length) day[slotKey] = slot;
+  else delete day[slotKey];
+  if (Object.keys(day).length) state.meals[dateKey] = day;
   else delete state.meals[dateKey];
 }
+const mealOf = (dateKey, slotKey, personId) => ((state.meals[dateKey] || {})[slotKey] || {})[personId] || null;
 const snapshotMeals = () => JSON.parse(JSON.stringify(state.meals));
+
+/* ------------------------------------------------------------ zakres listy */
+
+function rangeSummary(from, to) {
+  if (!from || !to || to < from) return { ok: false, text: 'Data „do” musi być taka sama albo późniejsza niż „od”.' };
+  const days = daysBetween(from, to);
+  if (days > 31) return { ok: false, text: 'Najwyżej 31 dni naraz.' };
+  const n = mealsInRange(from, to).length;
+  const head = `${rangeText(from, to)} · ${days} ${plural(days, 'dzień', 'dni', 'dni')}`;
+  return n
+    ? { ok: true, text: `${head} · ${n} ${plural(n, 'porcja', 'porcje', 'porcji')} w planie` }
+    : { ok: false, text: `${head} · w tym zakresie nic nie zaplanowano` };
+}
+function openRange() {
+  const lr = listRange();
+  const hasRecipeItems = state.list.items.some((i) => !i.manual);
+  const { from, to } = hasRecipeItems && lr && location.hash.startsWith('#/lista') ? lr : defaultRange();
+  const s = rangeSummary(from, to);
+  openSheet(`
+    ${sheetHead('Lista zakupów')}
+    <p class="sub">Z jakich dni zebrać składniki? Zapamiętam, od którego dnia zaczynasz.</p>
+    <div class="grid2">
+      <label class="lbl">Od<input class="input" type="date" id="range-from" value="${iso(from)}"></label>
+      <label class="lbl">Do<input class="input" type="date" id="range-to" value="${iso(to)}"></label>
+    </div>
+    <p class="hint" id="range-summary" role="status">${esc(s.text)}</p>
+    <button type="button" class="btn primary" data-act="range-generate"${s.ok ? '' : ' disabled'}>Generuj listę</button>`);
+}
+// iOS przy polach daty wysyła raz „input”, raz „change” — obsługuję oba.
+function onRangeInput(t) {
+  const { from, to } = readRange();
+  // Przesunięcie „od” za „do” przesuwa też „do”, żeby zachować długość zakresu.
+  if (t.id === 'range-from' && from && to && to < from) {
+    $('#range-to').value = iso(addDays(from, state.listPrefs.days - 1));
+  }
+  const r = readRange();
+  const s = rangeSummary(r.from, r.to);
+  const out = $('#range-summary');
+  if (out) out.textContent = s.text;
+  const btn = document.querySelector('[data-act="range-generate"]');
+  if (btn) btn.disabled = !s.ok;
+}
+function readRange() {
+  const f = $('#range-from');
+  const t = $('#range-to');
+  const from = f && f.value ? fromIso(f.value) : null;
+  const to = t && t.value ? fromIso(t.value) : null;
+  return { from, to };
+}
 
 /* --------------------------------------------------------- kolejność sklepu */
 
@@ -1474,44 +1627,59 @@ const actions = {
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
   'slot-open': (el) => {
-    const same = picker && picker.date === el.dataset.date && picker.slot === el.dataset.slot;
-    picker = same ? null : { date: el.dataset.date, slot: el.dataset.slot };
+    const { date, slot } = el.dataset;
+    const who = el.dataset.who || state.lastWho[slot] || 'kz';
+    const same = picker && picker.date === date && picker.slot === slot && picker.who === who;
+    picker = same ? null : { date, slot, who };
     pickerQuery = '';
     pickerSub = 'all';
     render();
     const p = $('#picker');
     if (p) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   },
+  'picker-who': (el) => { if (picker) { picker.who = el.dataset.who; render(); } },
   'picker-slot': (el) => { if (picker) { picker.slot = el.dataset.slot; pickerSub = 'all'; render(); } },
   'picker-choose': (el) => {
     if (!picker) return;
     const r = getRecipe(el.dataset.rid);
     if (!r) return;
-    const cur = (state.meals[picker.date] || {})[picker.slot];
-    setMeal(picker.date, picker.slot, { recipeId: r.id, servings: cur ? cur.servings : Math.max(1, Math.round(r.servings || 1)) });
+    for (const id of whoIds(picker.who)) {
+      const cur = mealOf(picker.date, picker.slot, id);
+      setPersonMeal(picker.date, picker.slot, id, { recipeId: r.id, servings: cur ? cur.servings || 1 : 1 });
+    }
+    state.lastWho[picker.slot] = picker.who;
     picker = null;
     save(); render();
   },
   'picker-clear': () => {
     if (!picker) return;
     const before = snapshotMeals();
-    setMeal(picker.date, picker.slot, null);
+    for (const id of whoIds(picker.who)) setPersonMeal(picker.date, picker.slot, id, null);
     picker = null;
     save(); render();
     toast('Usunięto z planu', () => { state.meals = before; save(); render(); });
   },
   'picker-close': () => { picker = null; render(); },
   'meal-inc': (el) => {
-    const m = (state.meals[el.dataset.date] || {})[el.dataset.slot];
-    if (m) { m.servings = Math.min(50, (m.servings || 1) + 1); save(); render(); }
+    const { date, slot, who } = el.dataset;
+    for (const id of whoIds(who)) {
+      const m = mealOf(date, slot, id);
+      if (m) m.servings = Math.min(50, (m.servings || 1) + 1);
+    }
+    save(); render();
   },
   'meal-dec': (el) => {
-    const m = (state.meals[el.dataset.date] || {})[el.dataset.slot];
-    if (!m) return;
-    if (m.servings > 1) { m.servings -= 1; save(); render(); return; }
+    const { date, slot, who } = el.dataset;
+    const ms = whoIds(who).map((id) => mealOf(date, slot, id)).filter(Boolean);
+    if (!ms.length) return;
+    if (ms.every((m) => (m.servings || 1) > 1)) {
+      for (const m of ms) m.servings -= 1;
+      save(); render();
+      return;
+    }
     const before = snapshotMeals();
-    setMeal(el.dataset.date, el.dataset.slot, null);
-    if (picker && picker.date === el.dataset.date && picker.slot === el.dataset.slot) picker = null;
+    for (const id of whoIds(who)) setPersonMeal(date, slot, id, null);
+    if (picker && picker.date === date && picker.slot === slot) picker = null;
     save(); render();
     toast('Usunięto z planu', () => { state.meals = before; save(); render(); });
   },
@@ -1522,11 +1690,20 @@ const actions = {
     save(); render();
     toast('Tydzień wyczyszczony', () => { state.meals = before; save(); render(); });
   },
-  generate: () => { picker = null; generateList(viewMonday()); location.hash = '#/lista'; },
+  generate: () => { picker = null; render(); openRange(); },
+  'range-open': openRange,
+  'range-generate': () => {
+    const { from, to } = readRange();
+    if (!rangeSummary(from, to).ok) return;
+    state.listPrefs = { startDow: from.getDay(), days: daysBetween(from, to) };
+    generateList(from, to);
+    closeSheet();
+    if (location.hash.startsWith('#/lista')) { render(); toast(`Lista na ${rangeText(from, to)}`); } else location.hash = '#/lista';
+  },
   'generate-here': () => {
-    const hasRecipeItems = state.list.items.some((i) => !i.manual);
-    const monday = hasRecipeItems && state.list.week ? fromIso(state.list.week) : viewMonday();
-    generateList(monday);
+    const lr = listRange();
+    if (!state.list.items.some((i) => !i.manual) || !lr) { openRange(); return; }
+    generateList(lr.from, lr.to);
     render();
     toast('Lista odświeżona');
   },
@@ -1555,7 +1732,12 @@ const actions = {
     const mealsBefore = snapshotMeals();
     state.recipes = state.recipes.filter((x) => x.id !== rid);
     for (const [dk, entry] of Object.entries(state.meals)) {
-      for (const slot of SLOTS) if (entry[slot.key] && entry[slot.key].recipeId === rid) setMeal(dk, slot.key, null);
+      for (const slot of SLOTS) {
+        for (const p of PEOPLE) {
+          const m = (entry[slot.key] || {})[p.id];
+          if (m && m.recipeId === rid) setPersonMeal(dk, slot.key, p.id, null);
+        }
+      }
     }
     save();
     location.hash = '#/przepisy';
@@ -1725,6 +1907,7 @@ document.addEventListener('keydown', (ev) => {
 document.addEventListener('change', (ev) => {
   const t = ev.target;
   if (t.id === 'scan-photo' && t.files && t.files[0]) { scanFromPhoto(t.files[0]); return; }
+  if (t.id === 'range-from' || t.id === 'range-to') { onRangeInput(t); return; }
   if (t.id === 'photo-file' && t.files && t.files[0]) {
     const rid = t.dataset.rid;
     shrinkImage(t.files[0])
@@ -1778,6 +1961,7 @@ document.addEventListener('toggle', (ev) => {
 }, true);
 document.addEventListener('input', (ev) => {
   if (ev.target.id === 'r-name') fitTitle();
+  if (ev.target.id === 'range-from' || ev.target.id === 'range-to') onRangeInput(ev.target);
   if (ev.target.id === 'recipe-search') {
     recipeQuery = ev.target.value;
     const box = $('#recipe-list');
