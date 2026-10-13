@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.4.1';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -146,14 +146,14 @@ const icon = (name, size = 20, sw = 2) =>
 /* ------------------------------------------------------------- dział (aisle) */
 
 const DEPT_RULES = [
-  ['Słodycze i przekąski', /czekolad|baton|ciastk|ciasteczk|chips|cukierk|żelk|wafel|wafle|herbatnik|paluszk|krakers|popcorn|draż|pralin/],
-  ['Suche, puszki i słoiki', /erytrytol|ksylitol|stewi|słodzik|proszek do pieczenia|śmietan fix|budyń|drożdż|żelatyn|bułka tarta|mąka|skrobia|makaron|ryż|kasz[aey]|płatki|kukurydza|fasol|ciecierzyc|soczewic|pomidory krojone|passata|koncentrat|tuńczyk|sardyn|kiszon|oliwki|dżem|miód|cukier|orzech|migdał|pistacj|sezam|mus jabłk|mus owoc|rodzynk|kakao|herbat|kawa|mleko kokos|wiórki|siemię|nasiona|pestki/],
-  ['Przyprawy i sosy', /(^|\s)sól|pieprz|w proszku|granulowan|suszon|oregano|tymianek|cynamon|kardamon|imbir mielony|goździk|gałka muszkat|ekstrakt wanili|aromat wanili|cukier wanili|laska wanili|wanilia|kurkum|curry|kmin|majeranek|ziele angielskie|liść laurowy|bulion|kostka rosołowa|(^|\s)sos(\s|$)|pesto|ketchup|musztard|majonez|ocet|olej|oliwa|przyprawa/],
+  ['Słodycze i przekąski', /czekolad|baton|ciastk|ciasteczk|chips|cukierk|żelk|wafel|wafle|herbatnik|paluszk|krakers|popcorn|draż|pralin|biszkopt/],
+  ['Suche, puszki i słoiki', /erytrytol|ksylitol|stewi|słodzik|proszek do pieczenia|śmietan fix|budyń|drożdż|żelatyn|bułka tarta|mąka|skrobia|makaron|ryż|kasz[aey]|płatki|kukurydza|fasol|ciecierzyc|soczewic|pomidory krojone|passata|koncentrat|tuńczyk|sardyn|kiszon|oliwki|dżem|miód|cukier|orzech|migdał|pistacj|sezam|mus jabłk|mus owoc|rodzynk|kakao|herbat|kawa|mleko kokos|mleczko kokos|syrop|odżywka białk|wiórki|siemię|nasiona|pestki/],
+  ['Przyprawy i sosy', /(^|\s)sól|pieprz|w proszku|granulowan|suszon|oregano|tymianek|cynamon|kardamon|imbir mielony|goździk|gałka muszkat|ekstrakt wanili|aromat wanili|cukier wanili|laska wanili|^wanilia|kurkum|curry|kmin|majeranek|ziele angielskie|liść laurowy|bulion|kostka rosołowa|(^|\s)sos(\s|$)|pesto|ketchup|musztard|majonez|ocet|olej|oliwa|przyprawa/],
   ['Pieczywo', /tortill|chleb|bułk|bagietk|(^|\s)pita|wrap|bajgiel|rogal|grzank|pieczywo/],
   ['Mięso i ryby', /mięs|mielon|kurczak|indyk|pierś|udk|wołow|wieprz|schab|boczek|szynk|kiełbas|parówk|łosoś|dorsz|krewet|ryb[aey]|filet|polędwic/],
-  ['Nabiał i jaja', /hummus|kvarg|quark|mlek|mleko|jogurt|kefir|maślank|(^|\s)ser(\s|$|ek)|gouda|mozzarell|parmezan|feta|twaróg|twarog|śmietan|masło(?!w)|jajk|jaja|skyr/],
+  ['Nabiał i jaja', /hummus|kvarg|quark|mlek|mleko|jogurt|kefir|maślank|(^|\s)ser(\s|$|ek)|gouda|mozzarell|parmezan|feta|twaróg|twarog|śmietan|masło(?!w)|jajk|jaja|skyr|camembert|brie|ricott|mascarpone|gorgonzol|pierog|kopytk/],
   ['Mrożonki', /mrożon/],
-  ['Warzywa i owoce', /ziemniak|cebul|czosn|marchew|marchw|pietruszk|seler|(^|\s)por(\s|$)|ogór|pomidor|papryk|sałat|rukol|roszponk|szpinak|kapust|brokuł|kalafior|cukini|bakłażan|dyni|rzodkiew|szczypior|koper|natk|bazyli|mięt|imbir|cytryn|limonk|banan|jabł|grusz|śliwk|mango|ananas|pomarańcz|mandaryn|truskaw|malin|borówk|awokad|grzyb|pieczark|kiełk|winogron|kiwi/],
+  ['Warzywa i owoce', /ziemniak|cebul|czosn|marchew|marchw|pietruszk|seler|(^|\s)por(\s|$)|ogór|pomidor|papryk|sałat|rukol|roszponk|szpinak|kapust|brokuł|kalafior|cukini|bakłażan|dyni|rzodkiew|szczypior|koper|natk|bazyli|mięt|imbir|cytryn|limonk|banan|jabł|grusz|śliwk|mango|ananas|pomarańcz|mandaryn|truskaw|malin|borówk|awokad|grzyb|pieczark|kiełk|winogron|kiwi|wiśn|czereśn|brzoskwin|nektaryn|porzeczk|jagod|arbuz|melon/],
   ['Napoje', /(^|\s)woda|(^|\s)sok(\s|$)|napój|napoj|cola|piwo|wino(\s|$)/],
   ['Chemia i dom', /papier|płyn|proszek do prania|kapsułki|gąbk|worki|folia|ręcznik|szampon|mydło|pasta do zębów/],
 ];
@@ -369,6 +369,33 @@ function save() {
 // (kilka MB na całą apkę). W pamięci trzymam mapę: id przepisu → adres zdjęcia.
 const photos = new Map();
 const isPhotoUrl = (v) => typeof v === 'string' && /^(data:image\/|https:\/\/|img\/)/.test(v);
+// Do HTML-a wstawiam krótki adres blob: zamiast data URL (kilkadziesiąt kB tekstu
+// na zdjęcie), żeby lista przepisów i wyszukiwarka nie przerabiały megabajtów.
+const photoSrc = new Map();
+function blobSrc(url) {
+  const comma = url.indexOf(',');
+  if (!url.startsWith('data:') || comma < 0 || !url.slice(0, comma).includes(';base64')) return url;
+  try {
+    const mime = url.slice(5, url.indexOf(';')) || 'image/jpeg';
+    const bin = atob(url.slice(comma + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  } catch (e) {
+    return url;
+  }
+}
+function photoOf(id) {
+  const url = photos.get(id);
+  if (!url) return '';
+  if (!photoSrc.has(id)) photoSrc.set(id, blobSrc(url));
+  return photoSrc.get(id);
+}
+function dropSrc(id) {
+  const s = photoSrc.get(id);
+  if (s && s.startsWith('blob:')) URL.revokeObjectURL(s);
+  photoSrc.delete(id);
+}
 let photoDbPromise = null;
 function photoDb() {
   if (!photoDbPromise) {
@@ -393,10 +420,12 @@ async function photoWrite(fn) {
   });
 }
 function setPhoto(id, url) {
+  dropSrc(id);
   photos.set(id, url);
   photoWrite((st) => st.put(url, id)).catch(() => toast('Nie udało się zapisać zdjęcia na telefonie'));
 }
 function removePhoto(id) {
+  dropSrc(id);
   photos.delete(id);
   photoWrite((st) => st.delete(id)).catch(() => {});
 }
@@ -564,7 +593,7 @@ function pickerOptions() {
     .sort(byName);
   const btn = (r) => {
     const sel = !!cur && cur.recipeId === r.id;
-    const ph = photos.get(r.id);
+    const ph = photoOf(r.id);
     return `<button type="button" class="opt${sel ? ' on' : ''}" data-act="picker-choose" data-rid="${esc(r.id)}" aria-pressed="${sel}">${ph ? `<img class="opt-photo" src="${esc(ph)}" alt="" loading="lazy">` : ''}<span>${esc(r.name)}</span></button>`;
   };
   const what = wantCat === 'obiad' ? 'obiadów' : pickerSub === 'slodkie' ? 'słodkich śniadań' : pickerSub === 'slone' ? 'słonych śniadań' : 'śniadań';
@@ -685,7 +714,7 @@ function recipeCards() {
   for (const m of weekMeals(viewMonday())) counts[m.recipe.id] = (counts[m.recipe.id] || 0) + 1;
   return `<ul class="card-list">${rs.map((r) => {
     const sub = r.cat === 'sniadanie' && r.sub ? `${r.sub === 'slodkie' ? 'Słodkie' : 'Słone'} · ` : '';
-    const ph = photos.get(r.id);
+    const ph = photoOf(r.id);
     return `<li class="card${ph ? ' has-photo' : ''}">
       ${ph ? `<img class="card-photo" src="${esc(ph)}" alt="" loading="lazy">` : ''}
       <a class="card-main" href="#/przepis/${encodeURIComponent(r.id)}">
@@ -742,7 +771,7 @@ function renderRecipe(id) {
   if (!r) {
     return `<main class="screen"><a class="back" href="#/przepisy">${icon('back', 24)}<span>Przepisy</span></a><div class="empty">Nie ma takiego przepisu.</div></main>`;
   }
-  const ph = photos.get(r.id);
+  const ph = photoOf(r.id);
   const steps = r.steps || [];
   const photoInput = `<input id="photo-file" type="file" accept="image/*" class="sr-only" data-rid="${esc(r.id)}">`;
   return `
@@ -1259,6 +1288,9 @@ function importRecipes(data) {
       if (touched) updated += 1; else skipped += 1;
       continue;
     }
+    // Samo zdjęcie/opis bez składników to łatka do istniejącego przepisu,
+    // a nie nowy przepis — pusty nic by nie dodał do listy zakupów.
+    if (!r.items.length && (photo || r.steps.length)) { skipped += 1; continue; }
     byName.set(key(r.name), r);
     fresh.push(r);
     if (photo) setPhoto(r.id, photo);
