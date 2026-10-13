@@ -1,7 +1,7 @@
 /* Zakupy z przepisów — wersja 1. Dane trzymane wyłącznie w tym telefonie (localStorage). */
 
 const STORE_KEY = 'zakupy.v1';
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.5.1';
 const PONYFILL_URLS = [
   'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
   'https://fastly.jsdelivr.net/npm/barcode-detector@3.1.3/dist/es/ponyfill.js',
@@ -106,8 +106,9 @@ const PEOPLE = [
 const WHO = [['k', 'Kacper'], ['z', 'Zuzia'], ['kz', 'Oboje']];
 const whoIds = (who) => (who === 'kz' ? ['k', 'z'] : [who]);
 const personOf = (id) => PEOPLE.find((p) => p.id === id) || PEOPLE[0];
-// Miejsce na przyszłe wersje przepisów pod makro każdej osoby; na razie porcja to porcja.
-const portionFactor = (/* personId, recipe */) => 1;
+// Przepisy z AllowEat są liczone pod Kacpra. Porcja każdej osoby to procent takiej porcji
+// (state.portions), więc wspólny obiad dla dwojga to np. 100% + 70%, a nie 2 pełne porcje.
+const portionFactor = (personId) => ((state.portions && state.portions[personId]) || 100) / 100;
 const pad2 = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const fromIso = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
@@ -372,6 +373,8 @@ function normalizeState(s) {
     // Od którego dnia tygodnia i na ile dni zwykle robisz listę (6 = sobota).
     listPrefs: s.listPrefs && Number.isInteger(s.listPrefs.startDow) && s.listPrefs.days > 0
       ? s.listPrefs : { startDow: 1, days: 7 },
+    // Wielkość porcji każdej osoby w % porcji z przepisu (Zuzia domyślnie 70%).
+    portions: { k: 100, z: 70, ...(s.portions || {}) },
   };
 }
 function load() {
@@ -550,8 +553,8 @@ function setCat(k, patch) {
 }
 
 function rangeSig(from, to) {
-  return hash(JSON.stringify(mealsInRange(from, to).map((m) =>
-    [iso(m.date), m.slot, m.person, m.recipe.id, m.servings, m.recipe.servings, m.recipe.items.map((i) => [i.name, i.qty, i.unit, i.g])])));
+  return hash(JSON.stringify([state.portions, mealsInRange(from, to).map((m) =>
+    [iso(m.date), m.slot, m.person, m.recipe.id, m.servings, m.recipe.servings, m.recipe.items.map((i) => [i.name, i.qty, i.unit, i.g])])]));
 }
 
 /* -------------------------------------------------------- list generation */
@@ -775,6 +778,9 @@ function renderPlan() {
         </div>
         <h1>Plan posiłków</h1>
         <p class="sub">${meals} ${plural(meals, 'posiłek', 'posiłki', 'posiłków')} · ${esc(porcje(total))}${free ? ` · ${free} ${plural(free, 'wolne miejsce', 'wolne miejsca', 'wolnych miejsc')}` : ''}</p>
+        <button type="button" class="range-btn" data-act="portions-open" aria-label="Wielkość porcji: ${PEOPLE.map((p) => `${p.name} ${state.portions[p.id]}%`).join(', ')}. Zmień">
+          ${PEOPLE.map((p) => `<span class="who who-${p.id}">${p.name} ${state.portions[p.id]}%</span>`).join('')}<span class="range-edit">porcje</span>
+        </button>
       </header>
       <nav class="day-strip" aria-label="Dni tygodnia">${chips.join('')}</nav>
       ${days.join('')}
@@ -1482,6 +1488,37 @@ function setPersonMeal(dateKey, slotKey, personId, value) {
 const mealOf = (dateKey, slotKey, personId) => ((state.meals[dateKey] || {})[slotKey] || {})[personId] || null;
 const snapshotMeals = () => JSON.parse(JSON.stringify(state.meals));
 
+/* ---------------------------------------------------------- wielkość porcji */
+
+const PORTION_MIN = 30;
+const PORTION_MAX = 150;
+function portionsSheet() {
+  return `
+    ${sheetHead('Wielkość porcji')}
+    <p class="sub">Przepisy z AllowEat są liczone pod Twój plan. Ustaw, jaką część takiej porcji je każde z Was — lista zakupów policzy składniki według tego.</p>
+    <ul class="group-list">${PEOPLE.map((p) => {
+      const v = state.portions[p.id];
+      return `<li class="order-row">
+        <span class="order-name"><span class="who who-${p.id}">${p.name}</span></span>
+        <div class="stepper">
+          <button type="button" class="icon-btn" data-act="portion-dec" data-pid="${p.id}" aria-label="Mniejsza porcja: ${p.name}"${v <= PORTION_MIN ? ' disabled' : ''}>${icon('minus')}</button>
+          <span class="count portion-val">${v}%</span>
+          <button type="button" class="icon-btn" data-act="portion-inc" data-pid="${p.id}" aria-label="Większa porcja: ${p.name}"${v >= PORTION_MAX ? ' disabled' : ''}>${icon('plus')}</button>
+        </div>
+      </li>`;
+    }).join('')}</ul>
+    <p class="hint">Przykład: wspólny obiad przy ${state.portions.k}% i ${state.portions.z}% to ${state.portions.k + state.portions.z}% przepisu. Jeśli znasz dzienne kalorie Zuzi, jej procent to mniej więcej jej kalorie ÷ Twoje kalorie z AllowEat.</p>
+    <button type="button" class="btn primary" data-act="sheet-close">Gotowe</button>`;
+}
+function changePortion(pid, delta) {
+  const v = Math.min(PORTION_MAX, Math.max(PORTION_MIN, (state.portions[pid] || 100) + delta));
+  state.portions = { ...state.portions, [pid]: v };
+  save();
+  render();
+  const sheet = document.querySelector('#sheet-root .sheet');
+  if (sheet) sheet.innerHTML = portionsSheet();
+}
+
 /* ------------------------------------------------------------ zakres listy */
 
 function rangeSummary(from, to) {
@@ -1692,6 +1729,9 @@ const actions = {
   },
   generate: () => { picker = null; render(); openRange(); },
   'range-open': openRange,
+  'portions-open': () => openSheet(portionsSheet()),
+  'portion-inc': (el) => changePortion(el.dataset.pid, 5),
+  'portion-dec': (el) => changePortion(el.dataset.pid, -5),
   'range-generate': () => {
     const { from, to } = readRange();
     if (!rangeSummary(from, to).ok) return;

@@ -661,3 +661,4 @@ code { font-family: var(--mono); font-size: 13px; }
 }
 .range-btn svg { color: var(--muted); }
 .range-edit { color: var(--accent); }
+.portion-val { min-width: 58px; }
